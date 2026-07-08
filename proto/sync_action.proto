@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Decrypted payload of an app-state mutation (issues #35b, #35d). Subset
+// of WhatsApp's WAWebProtobufSyncAction.proto — field numbers verified
+// against whatsmeow proto/waSyncAction/WAWebProtobufSyncAction.proto
+// (upstream is proto2; all fields optional, so the proto3 wire format is
+// identical). #35b modelled only the envelope + value timestamp; #35d
+// adds the mute/pin/archive/contact/pushname submessages that back the
+// event surface. Field names are snake_case to match pywhats convention;
+// only the wire field numbers must match WhatsApp.
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+message MuteAction {
+  optional bool muted = 1;
+  optional int64 mute_end_timestamp = 2;
+  optional bool auto_muted = 3;
+  optional int64 mute_everyone_mention_end_timestamp = 4;
+}
+
+message PinAction {
+  optional bool pinned = 1;
+}
+
+message ArchiveChatAction {
+  optional bool archived = 1;
+}
+
+message ContactAction {
+  optional string full_name = 1;
+  optional string first_name = 2;
+  optional string lid_jid = 3;
+  optional bool save_on_primary_addressbook = 4;
+  optional string pn_jid = 5;
+  optional string username = 6;
+}
+
+message PushNameSetting {
+  optional string name = 1;
+}
+
+message SyncActionValue {
+  optional int64 timestamp = 1;
+  optional ContactAction contact_action = 3;
+  optional MuteAction mute_action = 4;
+  optional PinAction pin_action = 5;
+  optional PushNameSetting push_name_setting = 7;
+  optional ArchiveChatAction archive_chat_action = 17;
+}
+
+message SyncActionData {
+  optional bytes index = 1;
+  optional SyncActionValue value = 2;
+  optional bytes padding = 3;
+  optional int32 version = 4;
+}

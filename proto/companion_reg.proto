@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Companion / multi-device pairing messages (ADV = Auxiliary Device
+// Verification). Used during the QR-code / phone-number pairing flow
+// and for carrying advertised device identities over the wire.
+//
+// Field numbers re-derived from public WhatsApp Web protocol writeups
+// (see proto/README.md).
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+// Client-advertised device properties, sent inside
+// DevicePairingRegistrationData.device_props during pairing.
+message DeviceProps {
+  optional string os = 1;                 // e.g. "pywhats"
+  optional AppVersion version = 2;
+  optional PlatformType platform_type = 3;
+  optional bool requires_full_sync = 4;
+  optional HistorySyncConfig history_sync_config = 5;
+
+  message AppVersion {
+    optional uint32 primary = 1;
+    optional uint32 secondary = 2;
+    optional uint32 tertiary = 3;
+    optional uint32 quaternary = 4;
+    optional uint32 quinary = 5;
+  }
+
+  enum PlatformType {
+    UNKNOWN = 0;
+    CHROME = 1;
+    FIREFOX = 2;
+    IE = 3;
+    OPERA = 4;
+    SAFARI = 5;
+    EDGE = 6;
+    DESKTOP = 7;
+    IPAD = 8;
+    ANDROID_TABLET = 9;
+    OHANA = 10;
+    ALOHA = 11;
+    CATALINA = 12;
+    TCL_TV = 13;
+  }
+
+  message HistorySyncConfig {
+    optional uint32 full_sync_days_limit = 1;
+    optional uint32 full_sync_size_mb_limit = 2;
+    optional uint32 storage_quota_mb = 3;
+    optional bool inline_initial_payload_in_notification = 4;
+    optional uint32 non_inline_initial_payload_in_notification = 5;
+    optional MediaRequestsConfig media_request_config = 6;
+
+    message MediaRequestsConfig {
+      optional uint32 inline_initial_payload_in_notification = 1;
+    }
+  }
+}
+
+// Identity advertised by a device (phone or companion) before signing.
+message ADVDeviceIdentity {
+  optional uint32 raw_id = 1;       // device jid raw id
+  optional uint64 timestamp = 2;    // unix seconds
+  optional uint32 key_index = 3;    // pre-key index used to sign
+}
+
+// Signed wrapper around ADVDeviceIdentity. Exchanged during companion
+// pairing so the primary phone can vouch for the companion.
+message ADVSignedDeviceIdentity {
+  optional bytes details = 1;              // serialized ADVDeviceIdentity
+  optional bytes account_signature_key = 2; // primary-device identity pubkey (Ed25519)
+  optional bytes account_signature = 3;     // signature by the primary device
+  optional bytes device_signature = 4;      // signature by the companion device
+}
+
+// Signed key-index list published by the primary device listing all
+// currently active companions.
+message ADVSignedKeyIndexList {
+  optional bytes details = 1;      // serialized ADVKeyIndexList
+  optional bytes account_signature = 2;
+}
+
+message ADVKeyIndexList {
+  optional uint64 raw_id = 1;
+  optional uint64 timestamp = 2;
+  repeated uint32 current_index = 3;
+  repeated uint32 valid_indexes = 4 [packed = true];
+}
+
+// HMAC-wrapped variant used during the initial pair-device-sign step.
+message ADVSignedDeviceIdentityHMAC {
+  optional bytes details = 1;
+  optional bytes hmac = 2;
+}

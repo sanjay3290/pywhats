@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Noise handshake envelope for the WhatsApp Web multi-device protocol.
+//
+// The message shape and field numbers below are re-derived from public
+// reverse-engineering writeups of the WhatsApp Web Noise handshake
+// (see proto/README.md for citations). No source code was copied from
+// any upstream client; these schemas are hand-authored from prose
+// descriptions of the observable wire format.
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+// Top-level Noise handshake frame. Exactly one of the three sub-messages
+// is populated per frame, depending on which leg of the XX handshake we
+// are on.
+message HandshakeMessage {
+  ClientHello client_hello = 2;
+  ServerHello server_hello = 3;
+  ClientFinish client_finish = 4;
+
+  message ClientHello {
+    bytes ephemeral = 1;       // client Noise ephemeral public key (32B X25519)
+    bytes static = 2;          // optional static key payload (unused in XX leg 1)
+    bytes payload = 3;         // optional payload (unused in XX leg 1)
+  }
+
+  message ServerHello {
+    bytes ephemeral = 1;       // server Noise ephemeral public key
+    bytes static = 2;          // encrypted server static key
+    bytes payload = 3;         // encrypted server payload (certificate chain etc.)
+  }
+
+  message ClientFinish {
+    bytes static = 1;          // encrypted client static key
+    bytes payload = 2;         // encrypted ClientPayload (see client_payload.proto)
+  }
+}

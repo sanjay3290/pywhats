@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Decompressed payload of a HISTORY_SYNC_NOTIFICATION media blob (issue
+// #37). Minimal subset of WhatsApp's WAWebProtobufsHistorySync.proto —
+// field numbers verified against whatsmeow proto/waHistorySync (upstream
+// is proto2; the proto3 wire format is identical). The full message
+// carries WebMessageInfo, settings, sticker metadata, etc.; only the
+// fields the event surface needs are modelled. A per-message body is
+// kept as opaque bytes (its length-delimited wire type matches ``bytes``)
+// so history messages can be counted without pulling in the whole
+// WebMessageInfo schema.
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+message HistorySync {
+  enum HistorySyncType {
+    INITIAL_BOOTSTRAP = 0;
+    INITIAL_STATUS_V3 = 1;
+    FULL = 2;
+    RECENT = 3;
+    PUSH_NAME = 4;
+    NON_BLOCKING_DATA = 5;
+    ON_DEMAND = 6;
+  }
+
+  optional HistorySyncType sync_type = 1;
+  repeated Conversation conversations = 2;
+  optional uint32 chunk_order = 5;
+  optional uint32 progress = 6;
+  repeated Pushname pushnames = 7;
+}
+
+message Conversation {
+  optional string id = 1;
+  repeated HistorySyncMsg messages = 2;
+  optional string name = 3;
+  optional uint64 last_msg_timestamp = 5;
+  optional uint32 unread_count = 6;
+}
+
+message HistorySyncMsg {
+  optional bytes message = 1;  // opaque WebMessageInfo
+  optional uint64 msg_order_id = 2;
+}
+
+message Pushname {
+  optional string id = 1;
+  optional string pushname = 2;
+}

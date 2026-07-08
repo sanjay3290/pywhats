@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// libsignal group (sender-key) wire messages (issue #39). These are the
+// axolotl SenderKeyProtocol messages carried inside a WhatsApp group
+// `skmsg` / inside the WAE2E SenderKeyDistributionMessage's
+// `axolotl_sender_key_distribution_message` bytes. Field numbers match
+// libsignal's WhisperTextProtocol (SenderKeyMessage / SenderKeyDistribution
+// Message); message names are suffixed to avoid clashing with the WAE2E
+// `SenderKeyDistributionMessage` already declared in e2e.proto.
+//
+// Clean-room, UNAUDITED (see SECURITY.md) — like the rest of
+// pywhats.signal.experimental.
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+message SenderKeyMessageBody {
+  optional uint32 id = 1;
+  optional uint32 iteration = 2;
+  optional bytes ciphertext = 3;
+}
+
+message SenderKeyDistributionMessageBody {
+  optional uint32 id = 1;
+  optional uint32 iteration = 2;
+  optional bytes chain_key = 3;
+  optional bytes signing_key = 4;
+}

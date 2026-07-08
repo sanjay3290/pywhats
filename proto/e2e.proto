@@ -1,0 +1,185 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Minimal subset of the WhatsApp end-to-end message envelope needed for
+// Phase 1 (send/receive plaintext conversations). The full upstream
+// schema contains many more variants (media, polls, reactions, etc.);
+// those can be added incrementally without breaking compatibility
+// since protobuf fields are order-independent.
+//
+// Field numbers re-derived from public WhatsApp Web protocol writeups
+// (see proto/README.md).
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+// Top-level E2E envelope. Exactly one body field is set per message.
+message Message {
+  optional string conversation = 1;                      // plain text
+  optional SenderKeyDistributionMessage sender_key_distribution_message = 2;
+  optional ImageMessage image_message = 3;                 // image attachment (#36)
+  // ExtendedTextMessage is WhatsApp's wire field 6, not 14. Inbound
+  // replies from peers wrap text in this variant (carries quoted-reply
+  // and link-preview metadata), so getting the field number wrong
+  // makes every reply appear as an empty `Message` proto.
+  optional ExtendedTextMessage extended_text_message = 6;  // text w/ replies, links
+  optional ProtocolMessage protocol_message = 12;          // app-level control
+
+  // Note: many other body variants (video, audio, document, sticker,
+  // contact, location, poll, reaction, etc.) exist on the wire and will
+  // be added in later phases.
+}
+
+// A downloadable image attachment. Field numbers match whatsmeow
+// waE2E ImageMessage; only the download/send-essential subset is
+// modelled (issue #36). The URL/direct_path/media_key/hashes come from
+// a media upload; the same fields let a receiver download an inbound
+// image.
+message ImageMessage {
+  optional string url = 1;
+  optional string mimetype = 2;
+  optional string caption = 3;
+  optional bytes file_sha256 = 4;
+  optional uint64 file_length = 5;
+  optional uint32 height = 6;
+  optional uint32 width = 7;
+  optional bytes media_key = 8;
+  optional bytes file_enc_sha256 = 9;
+  optional string direct_path = 11;
+  optional int64 media_key_timestamp = 12;
+  optional bytes jpeg_thumbnail = 16;
+}
+
+message SenderKeyDistributionMessage {
+  optional string group_id = 1;
+  optional bytes axolotl_sender_key_distribution_message = 2;
+}
+
+message ExtendedTextMessage {
+  optional string text = 1;
+  optional string matched_text = 2;
+  optional string canonical_url = 4;
+  optional string description = 5;
+  optional string title = 6;
+  optional uint32 text_arg_b = 7;      // background color ARGB
+  optional FontType font = 8;
+  optional PreviewType preview_type = 9;
+  optional bytes jpeg_thumbnail = 16;
+  optional ContextInfo context_info = 17;
+
+  enum FontType {
+    SANS_SERIF = 0;
+    SERIF = 1;
+    NORICAN_REGULAR = 2;
+    BRYNDAN_WRITE = 3;
+    BEBASNEUE_REGULAR = 4;
+    OSWALD_HEAVY = 5;
+  }
+
+  enum PreviewType {
+    NONE = 0;
+    VIDEO = 1;
+  }
+}
+
+message ContextInfo {
+  optional string stanza_id = 1;                // id of the message being quoted
+  optional string participant = 2;               // sender jid of quoted message
+  optional Message quoted_message = 3;           // the quoted message itself
+  optional string remote_jid = 4;                // jid of the chat the quote is from
+  repeated string mentioned_jid = 15;
+  optional string conversion_source = 18;
+  optional bytes conversion_data = 19;
+  optional uint32 conversion_delay_seconds = 20;
+  optional uint32 forwarding_score = 21;
+  optional bool is_forwarded = 22;
+  optional string entry_point_conversion_source = 35; // TODO: verify
+  optional string entry_point_conversion_app = 36;    // TODO: verify
+}
+
+// App-level control messages (revoke, history sync, app-state sync keys, etc.).
+message ProtocolMessage {
+  optional MessageKey key = 1;           // target message key for revoke/edit
+  optional Type type = 2;
+  optional uint64 ephemeral_expiration = 4;
+  optional uint64 ephemeral_setting_timestamp = 5;
+  optional HistorySyncNotification history_sync_notification = 6;
+  optional AppStateSyncKeyShare app_state_sync_key_share = 7;
+  optional AppStateSyncKeyRequest app_state_sync_key_request = 8;
+
+  enum Type {
+    REVOKE = 0;
+    EPHEMERAL_SETTING = 3;
+    EPHEMERAL_SYNC_RESPONSE = 4;
+    HISTORY_SYNC_NOTIFICATION = 5;
+    APP_STATE_SYNC_KEY_SHARE = 6;
+    APP_STATE_SYNC_KEY_REQUEST = 7;
+    MSG_FANOUT_BACKFILL_REQUEST = 8;
+    INITIAL_SECURITY_NOTIFICATION_SETTING_SYNC = 9;
+    APP_STATE_FATAL_EXCEPTION_NOTIFICATION = 10;
+    SHARE_PHONE_NUMBER = 11;
+    MESSAGE_EDIT = 14;
+    PEER_DATA_OPERATION_REQUEST_MESSAGE = 16;
+    PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE = 17;
+  }
+}
+
+// Identifier for a specific message within a chat.
+message MessageKey {
+  optional string remote_jid = 1;
+  optional bool from_me = 2;
+  optional string id = 3;
+  optional string participant = 4;
+}
+
+// Placeholders for fields referenced above — defined minimally so the
+// schema compiles. Full definitions will arrive with later phases.
+message HistorySyncNotification {
+  optional bytes file_sha256 = 1;
+  optional uint64 file_length = 2;
+  optional bytes media_key = 3;
+  optional bytes file_enc_sha256 = 4;
+  optional string direct_path = 5;
+  optional SyncType sync_type = 6;
+  optional uint32 chunk_order = 7;
+  optional string original_message_id = 8;
+
+  enum SyncType {
+    INITIAL_BOOTSTRAP = 0;
+    INITIAL_STATUS_V3 = 1;
+    FULL = 2;
+    RECENT = 3;
+    PUSH_NAME = 4;
+    NON_BLOCKING_DATA = 5;
+    ON_DEMAND = 6;
+  }
+}
+
+message AppStateSyncKeyShare {
+  repeated AppStateSyncKey keys = 1;
+}
+
+message AppStateSyncKeyRequest {
+  repeated AppStateSyncKeyId key_ids = 1;
+}
+
+message AppStateSyncKey {
+  optional AppStateSyncKeyId key_id = 1;
+  optional AppStateSyncKeyData key_data = 2;
+}
+
+message AppStateSyncKeyId {
+  optional bytes key_id = 1;
+}
+
+message AppStateSyncKeyData {
+  optional bytes key_data = 1;
+  optional AppStateSyncKeyFingerprint fingerprint = 2;
+  optional int64 timestamp = 3;
+}
+
+message AppStateSyncKeyFingerprint {
+  optional uint32 raw_id = 1;
+  optional uint32 current_index = 2;
+  repeated uint32 device_indexes = 3 [packed = true];
+}

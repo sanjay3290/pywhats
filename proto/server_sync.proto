@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// App-state sync'd snapshot/patch containers (issue #35b). Subset of
+// WhatsApp's WAServerSync.proto, field numbers and types verified
+// against whatsmeow proto/waServerSync/WAServerSync.proto (upstream is
+// proto2; all fields optional, so the proto3 wire format is identical).
+
+syntax = "proto3";
+
+package pywhats.proto;
+
+message SyncdMutation {
+  enum SyncdOperation {
+    SET = 0;
+    REMOVE = 1;
+  }
+
+  optional SyncdOperation operation = 1;
+  optional SyncdRecord record = 2;
+}
+
+message SyncdVersion {
+  optional uint64 version = 1;
+}
+
+message ExitCode {
+  optional uint64 code = 1;
+  optional string text = 2;
+}
+
+message SyncdIndex {
+  optional bytes blob = 1;
+}
+
+message SyncdValue {
+  optional bytes blob = 1;
+}
+
+message KeyId {
+  optional bytes id = 1;
+}
+
+message SyncdRecord {
+  optional SyncdIndex index = 1;
+  optional SyncdValue value = 2;
+  optional KeyId key_id = 3;
+}
+
+message ExternalBlobReference {
+  optional bytes media_key = 1;
+  optional string direct_path = 2;
+  optional string handle = 3;
+  optional uint64 file_size_bytes = 4;
+  optional bytes file_sha256 = 5;
+  optional bytes file_enc_sha256 = 6;
+}
+
+message SyncdSnapshot {
+  optional SyncdVersion version = 1;
+  repeated SyncdRecord records = 2;
+  optional bytes mac = 3;
+  optional KeyId key_id = 4;
+}
+
+message SyncdMutations {
+  repeated SyncdMutation mutations = 1;
+}
+
+message SyncdPatch {
+  optional SyncdVersion version = 1;
+  repeated SyncdMutation mutations = 2;
+  optional ExternalBlobReference external_mutations = 3;
+  optional bytes snapshot_mac = 4;
+  optional bytes patch_mac = 5;
+  optional KeyId key_id = 6;
+  optional ExitCode exit_code = 7;
+  optional uint32 device_index = 8;
+  optional bytes client_debug_data = 9;
+}
