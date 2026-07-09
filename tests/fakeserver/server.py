@@ -104,6 +104,10 @@ class SignalPeer:
     identity: IdentityKeyPair = field(default_factory=IdentityKeyPair.generate)
     _spk: SignedPreKey = field(init=False)
     _ratchet: object | None = field(default=None, init=False)
+    # Responder-side ratchet established by decrypt_pkmsg, so tests can
+    # also decrypt the client's follow-up ``msg`` frames on that session.
+    _responder_ratchet: object | None = field(default=None, init=False)
+    _responder_peer_identity: bytes | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         self._spk = SignedPreKey.generate(self.identity, self.signed_pre_key_id)
@@ -191,6 +195,32 @@ class SignalPeer:
             ad,
             verify_mac=lambda mac_key: pkmsg.message.verify_mac(
                 pkmsg.identity_key, self.identity.public, mac_key
+            ),
+        )
+        self._responder_ratchet = state
+        self._responder_peer_identity = pkmsg.identity_key
+        return unpad_random_max16(plaintext)
+
+    def decrypt_followup(self, ciphertext: bytes, *, client_identity_public: bytes) -> bytes:
+        """Decrypt a plain ``msg`` from the client on the ratchet that
+        :meth:`decrypt_pkmsg` established (mirrors the receiver's
+        ``enc_type == "msg"`` path)."""
+        from pywhats.messaging.padding import unpad_random_max16
+        from pywhats.signal.experimental import ratchet_decrypt
+
+        if self._responder_ratchet is None or self._responder_peer_identity is None:
+            raise RuntimeError("no responder ratchet yet — call decrypt_pkmsg first")
+        inner = SignalMessage.decode(ciphertext)
+        ad = self._responder_peer_identity + self.identity.public
+        plaintext = ratchet_decrypt(
+            self._responder_ratchet,  # type: ignore[arg-type]
+            inner.header,
+            inner.ciphertext,
+            ad,
+            verify_mac=lambda mac_key: inner.verify_mac(
+                self._responder_peer_identity,  # type: ignore[arg-type]
+                self.identity.public,
+                mac_key,
             ),
         )
         return unpad_random_max16(plaintext)

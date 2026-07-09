@@ -414,6 +414,14 @@ def _sticker_proto() -> MessageProto:
     return proto
 
 
+def _reaction_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.reaction_message.key.id = "3EB0TARGETMSGID1"
+    proto.reaction_message.key.from_me = True
+    proto.reaction_message.text = "\N{THUMBS UP SIGN}"
+    return proto
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_proto,field",
@@ -422,6 +430,7 @@ def _sticker_proto() -> MessageProto:
         pytest.param(_video_proto, "video_message", id="video"),
         pytest.param(_audio_proto, "audio_message", id="audio"),
         pytest.param(_sticker_proto, "sticker_message", id="sticker"),
+        pytest.param(_reaction_proto, "reaction_message", id="reaction"),
     ],
 )
 async def test_own_device_copy_is_dsm_wrapped_for_new_variants(make_proto: Any, field: str) -> None:

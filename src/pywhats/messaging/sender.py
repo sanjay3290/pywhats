@@ -163,6 +163,9 @@ class _SentMessage:
     # the bare body.
     own_plaintext: bytes = b""
     retry_count: int = 0
+    # The stanza `type` attribute the original send used ("text",
+    # "reaction", ...), so a retry resend keeps the same routing hint.
+    message_type: str = "text"
 
 
 # --- sender ---------------------------------------------------------
@@ -219,17 +222,25 @@ class Sender:
         return await self.send_message(chat, MessageProto(conversation=text), text=text)
 
     async def send_message(
-        self, chat: JID, message_proto: MessageProto, *, text: str = ""
+        self,
+        chat: JID,
+        message_proto: MessageProto,
+        *,
+        text: str = "",
+        message_type: str | None = None,
     ) -> Message:
         """Encrypt and send an arbitrary ``Message`` proto (e.g. an image).
 
         Serialises + WA-pads the proto and runs the same encrypt / send /
         ack / single-retry path as :meth:`send_text`. ``text`` is only the
         value surfaced on the returned :class:`Message` event.
+        ``message_type`` overrides the stanza ``type`` attribute (e.g.
+        ``"reaction"``, whatsmeow ``getTypeFromMessage``).
         """
         message_id = new_message_id()
         plaintext = pad_random_max16(message_proto.SerializeToString())
         own_plaintext = self._build_dsm_plaintext(chat, message_proto)
+        resolved_type = message_type or self._config.message_type
         _log.info("sender: preparing message id=%s to=%s", message_id, _fmt_jid(chat))
 
         message = await self._send_once(
@@ -239,9 +250,14 @@ class Sender:
             plaintext=plaintext,
             own_plaintext=own_plaintext,
             allow_retry=True,
+            message_type=resolved_type,
         )
         self._sent[message.id] = _SentMessage(
-            chat=chat, text=text, plaintext=plaintext, own_plaintext=own_plaintext
+            chat=chat,
+            text=text,
+            plaintext=plaintext,
+            own_plaintext=own_plaintext,
+            message_type=resolved_type,
         )
         return message
 
@@ -388,6 +404,7 @@ class Sender:
             message_id=message_id,
             to=_base_jid(cached.chat),
             participants=[self._build_participant_node(peer, enc_type, ciphertext, count=count)],
+            message_type=cached.message_type,
         )
         fut = self._router.register(message_id)
         try:
@@ -417,6 +434,7 @@ class Sender:
         plaintext: bytes,
         own_plaintext: bytes,
         allow_retry: bool,
+        message_type: str | None = None,
     ) -> Message:
         target_devices = await self._target_devices(chat)
         participant_nodes: list[Node] = []
@@ -441,7 +459,10 @@ class Sender:
             encrypted_devices.append(device)
 
         stanza = self._build_message_node(
-            message_id=message_id, to=_base_jid(chat), participants=participant_nodes
+            message_id=message_id,
+            to=_base_jid(chat),
+            participants=participant_nodes,
+            message_type=message_type,
         )
         frame = encode(stanza)
 
@@ -473,6 +494,7 @@ class Sender:
                 plaintext=plaintext,
                 own_plaintext=own_plaintext,
                 allow_retry=False,
+                message_type=message_type,
             )
 
         _log.info("sender: ack id=%s", message_id)
@@ -693,6 +715,7 @@ class Sender:
         message_id: str,
         to: JID,
         participants: list[Node],
+        message_type: str | None = None,
     ) -> Node:
         content: list[Node] = [Node(tag="participants", content=participants)]
         if self._adv_signed_device_identity:
@@ -707,7 +730,7 @@ class Sender:
             attrs={
                 "id": message_id,
                 "to": to,
-                "type": self._config.message_type,
+                "type": message_type or self._config.message_type,
             },
             content=content,
         )

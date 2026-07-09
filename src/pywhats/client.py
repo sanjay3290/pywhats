@@ -100,7 +100,9 @@ class Client:
         ``Contact`` / ``PushName``). #38 adds ``receipt`` / ``presence`` /
         ``chat_presence``; #37 adds ``history_sync``. Group messages (#39)
         arrive on the same ``message`` event, with ``chat`` set to the
-        ``@g.us`` JID and ``sender`` to the participant.
+        ``@g.us`` JID and ``sender`` to the participant. 0.2.0 adds
+        ``reaction`` (an emoji reaction to an existing message, carrying
+        a :class:`pywhats.events.Reaction`).
         """
 
         def decorator(fn: Handler) -> Handler:
@@ -551,6 +553,42 @@ class Client:
         if caption:
             vid.caption = caption
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
+
+    async def send_reaction(
+        self,
+        chat: JID,
+        message_id: str,
+        emoji: str,
+        *,
+        from_me: bool = False,
+    ) -> Message:
+        """React to an existing message in ``chat`` (empty ``emoji`` removes).
+
+        ``message_id`` + ``from_me`` address the reacted-to message:
+        ``from_me=True`` when reacting to a message we sent ourselves.
+        Mirrors whatsmeow ``BuildReaction``.
+        """
+        import time
+
+        if not self._connected:
+            raise NotConnected("call connect() first")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.proto import Message as MessageProto
+
+        proto = MessageProto()
+        rm = proto.reaction_message
+        rm.key.remote_jid = f"{chat.user}@{chat.server}"
+        rm.key.from_me = from_me
+        rm.key.id = message_id
+        if emoji:
+            rm.text = emoji
+        rm.sender_timestamp_ms = int(time.time() * 1000)
+        return await sender.send_message(  # type: ignore[no-any-return]
+            chat, proto, message_type="reaction"
+        )
 
     async def send_sticker(
         self,

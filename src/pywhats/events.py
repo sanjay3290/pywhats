@@ -58,6 +58,24 @@ class Message:
     media: MediaAttachment | None = None
 
 
+@dataclass(slots=True)
+class Reaction:
+    """An emoji reaction to an existing message (0.2.0).
+
+    ``message_id`` + ``key_from_me`` are the reacted-to message's raw
+    MessageKey coordinates as sent by the reactor (``key_from_me`` is
+    from *their* perspective). ``text`` is the emoji; ``""`` means the
+    reaction was removed. ``timestamp`` is the sender timestamp in ms.
+    """
+
+    chat: JID
+    sender: JID
+    message_id: str
+    text: str
+    key_from_me: bool
+    timestamp: int
+
+
 # --- app-state events (issue #35d) -----------------------------------
 #
 # Decoded app-state mutations surfaced as typed events. ``timestamp`` is

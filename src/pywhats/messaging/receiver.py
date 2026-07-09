@@ -60,7 +60,7 @@ from pywhats.binary import Node, decode, encode
 from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
-from pywhats.events import JID, MediaAttachment, Message
+from pywhats.events import JID, MediaAttachment, Message, Reaction
 from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_IMAGE, MEDIA_VIDEO
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
@@ -441,6 +441,29 @@ class Receiver:
         except Exception as exc:  # noqa: BLE001
             _log.warning("receiver: unparseable message proto id=%s: %s", message_id, exc)
             await self._safe_emit("decrypt_error", message_id, f"proto: {exc}")
+            return
+
+        if proto.HasField("reaction_message"):
+            # A reaction is not a chat message: surface it as its own
+            # event (whatsmeow keeps the raw key; so do we), then ack.
+            rm = proto.reaction_message
+            await self._safe_emit(
+                "reaction",
+                Reaction(
+                    chat=chat_jid,
+                    sender=sender_jid,
+                    message_id=rm.key.id,
+                    text=rm.text,
+                    key_from_me=rm.key.from_me,
+                    timestamp=rm.sender_timestamp_ms,
+                ),
+            )
+            try:
+                await self._send_delivery_receipt(node, to=sender_jid)
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "receiver: failed to send delivery receipt id=%s; continuing", message_id
+                )
             return
 
         handled_protocol = self._handle_protocol_message(proto, sender_jid)

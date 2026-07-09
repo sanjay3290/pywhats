@@ -32,6 +32,7 @@ message Message {
   // sends: tells them "I sent this to <destination_jid>" so they render
   // it as outgoing. Upstream field number is 31 (whatsmeow waE2E).
   optional DeviceSentMessage device_sent_message = 31;
+  optional ReactionMessage reaction_message = 46;          // emoji reaction
 
   // Note: many other body variants (video, audio, document, sticker,
   // contact, location, poll, reaction, etc.) exist on the wire and will
@@ -214,6 +215,15 @@ message ProtocolMessage {
     PEER_DATA_OPERATION_REQUEST_MESSAGE = 16;
     PEER_DATA_OPERATION_REQUEST_RESPONSE_MESSAGE = 17;
   }
+}
+
+// An emoji reaction to an existing message. ``key`` addresses the
+// reacted-to message; an empty ``text`` removes the reaction. Field
+// numbers match whatsmeow waE2E ReactionMessage.
+message ReactionMessage {
+  optional MessageKey key = 1;
+  optional string text = 2;
+  optional int64 sender_timestamp_ms = 4;
 }
 
 // Identifier for a specific message within a chat.
