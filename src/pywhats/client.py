@@ -672,9 +672,8 @@ class Client:
         # reaction" by a present empty string, not an absent field.
         rm.text = emoji
         rm.sender_timestamp_ms = int(time.time() * 1000)
-        return await sender.send_message(  # type: ignore[no-any-return]
-            chat, proto, message_type="reaction"
-        )
+        # Stanza type ("reaction") is inferred from the body by send_message.
+        return await sender.send_message(chat, proto)  # type: ignore[no-any-return]
 
     async def send_sticker(
         self,

@@ -282,7 +282,7 @@ class Sender:
         message_id = new_message_id()
         plaintext = pad_random_max16(message_proto.SerializeToString())
         own_plaintext = self._build_dsm_plaintext(chat, message_proto)
-        resolved_type = message_type or self._config.message_type
+        resolved_type = message_type or _message_type_for(message_proto)
         _log.info("sender: preparing message id=%s to=%s", message_id, _fmt_jid(chat))
 
         message = await self._send_once(
@@ -850,6 +850,30 @@ class Sender:
 
 
 # --- helpers --------------------------------------------------------
+
+
+def _message_type_for(proto: MessageProto) -> str:
+    """The outer ``<message type=...>`` for a body (whatsmeow ``getTypeFromMessage``).
+
+    Media bodies name their kind (``image`` / ``video`` / ``audio`` /
+    ``ptt`` / ``document`` / ``sticker``); a reaction is ``reaction``;
+    everything else (conversation, extended text, protocol messages such
+    as edit/revoke) is ``text``. Sending media as ``text`` deviates from
+    the reference and can make recipients mishandle the attachment.
+    """
+    if proto.HasField("image_message"):
+        return "image"
+    if proto.HasField("video_message"):
+        return "video"
+    if proto.HasField("audio_message"):
+        return "ptt" if proto.audio_message.ptt else "audio"
+    if proto.HasField("document_message"):
+        return "document"
+    if proto.HasField("sticker_message"):
+        return "sticker"
+    if proto.HasField("reaction_message"):
+        return "reaction"
+    return "text"
 
 
 async def _single_device_fetcher(users: Iterable[JID]) -> dict[JID, UserSyncEntry]:

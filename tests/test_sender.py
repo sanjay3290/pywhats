@@ -495,6 +495,56 @@ def _revoke_proto() -> MessageProto:
     return proto
 
 
+def _image_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.image_message.mimetype = "image/jpeg"
+    proto.image_message.media_key = b"\x25" * 32
+    return proto
+
+
+def _audio_plain_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.audio_message.mimetype = "audio/ogg"
+    proto.audio_message.media_key = b"\x26" * 32
+    return proto
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_proto,expected_type",
+    [
+        pytest.param(_image_proto, "image", id="image"),
+        pytest.param(_video_proto, "video", id="video"),
+        pytest.param(_audio_proto, "ptt", id="voice-note"),
+        pytest.param(_audio_plain_proto, "audio", id="audio"),
+        pytest.param(_document_proto, "document", id="document"),
+        pytest.param(_sticker_proto, "sticker", id="sticker"),
+        pytest.param(_reaction_proto, "reaction", id="reaction"),
+        pytest.param(_reply_proto, "text", id="reply"),
+        pytest.param(_edit_proto, "text", id="edit"),
+    ],
+)
+async def test_stanza_type_matches_message_body(make_proto: Any, expected_type: str) -> None:
+    """The outer <message type=...> must name the body kind (whatsmeow
+    getTypeFromMessage): image/video/audio/ptt/document/sticker/reaction,
+    else text. Sending media as type=text deviates from the reference."""
+    transport = FakeTransport()
+    router = AckRouter()
+    _, _, _, bundle = _make_bob_bundle()
+    sender, _ = _build_sender(transport=transport, router=router, bundle=bundle)
+    chat = JID(user="15557654321", server="s.whatsapp.net")
+
+    task = asyncio.create_task(sender.send_message(chat, make_proto()))
+    for _ in range(100):
+        if transport.frames and router.pending_ids():
+            break
+        await asyncio.sleep(0.01)
+    router.resolve_ack(router.pending_ids()[0])
+    await task
+
+    assert decode(transport.frames[0]).get_str("type") == expected_type
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_proto,field",
