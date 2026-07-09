@@ -128,6 +128,53 @@ def setup_function() -> None:
     _reset_for_tests()
 
 
+def _enc_type(frame: bytes) -> str:
+    stanza = decode(frame)
+    participants = stanza.get_child("participants")
+    assert participants is not None
+    to = participants.get_child("to")
+    assert to is not None
+    enc = to.get_child("enc")
+    assert enc is not None
+    return enc.get_str("type")
+
+
+@pytest.mark.asyncio
+async def test_prekey_preamble_repeats_until_inbound() -> None:
+    """libsignal: the pkmsg preamble rides EVERY outbound message until we
+    decrypt an inbound message from the peer (SessionCipher clears the
+    unacknowledged prekey on decrypt, NOT on send-ack). Clearing it after
+    the server ack means message 2 goes out as a bare `msg` the recipient
+    drops — which is why only the first message ever arrives."""
+    transport = FakeTransport()
+    router = AckRouter()
+    _, _, _, bundle = _make_bob_bundle()
+    sender, _ = _build_sender(transport=transport, router=router, bundle=bundle)
+    chat = JID(user="15557654321", server="s.whatsapp.net")
+
+    async def _send(text: str) -> None:
+        want = len(transport.frames) + 1
+        task = asyncio.create_task(sender.send_text(chat, text))
+        for _ in range(100):
+            if len(transport.frames) >= want and router.pending_ids():
+                break
+            await asyncio.sleep(0.01)
+        router.resolve_ack(router.pending_ids()[0])
+        await task
+
+    await _send("one")
+    await _send("two")
+    # Both sent before any inbound → both must carry the pkmsg preamble.
+    assert _enc_type(transport.frames[0]) == "pkmsg"
+    assert _enc_type(transport.frames[1]) == "pkmsg"
+
+    # Once we've decrypted an inbound message from the peer, the session
+    # is acknowledged and subsequent sends drop the preamble.
+    sender.note_incoming_decrypted(chat)
+    await _send("three")
+    assert _enc_type(transport.frames[2]) == "msg"
+
+
 def test_new_message_id_shape_and_uniqueness() -> None:
     seen: set[str] = set()
     for _ in range(50):

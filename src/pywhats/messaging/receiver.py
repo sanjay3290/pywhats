@@ -430,6 +430,13 @@ class Receiver:
                 _log.exception("receiver: failed to send retry receipt id=%s", message_id)
             return
 
+        # A successful decrypt confirms the peer has our session, so the
+        # sender can stop prepending the pkmsg preamble on outbound
+        # messages (libsignal clears the unacknowledged prekey on decrypt).
+        note = getattr(self._retry_handler, "note_incoming_decrypted", None)
+        if callable(note):
+            note(sender_jid)
+
         try:
             unpadded = unpad_random_max16(plaintext)
         except ValueError as exc:

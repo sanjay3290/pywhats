@@ -464,9 +464,35 @@ class Sender:
         if isinstance(result, RetrySignal):
             _log.info("sender: retry resend got retry id=%s attrs=%s", message_id, result.attrs)
             return
-        retry_meta = self._peer_meta.get(session_id(await self._resolve_signal_address(peer)))
-        if retry_meta is not None:
-            retry_meta.pending_prekey = None
+        # Do NOT clear the pending prekey on a retry-resend ack either: the
+        # peer still hasn't confirmed the session by replying. It is cleared
+        # only when we decrypt an inbound message (note_incoming_decrypted).
+
+    def note_incoming_decrypted(self, peer: JID) -> None:
+        """Acknowledge a peer's session after decrypting an inbound message.
+
+        Mirrors libsignal ``SessionCipher`` clearing the unacknowledged
+        pre-key only on a successful decrypt: until we hear back from the
+        peer, every outbound message must carry the pkmsg preamble so the
+        recipient can (re)establish the session. Clears the preamble for
+        the peer's session id and its PN<->LID alternate.
+        """
+        for candidate in self._peer_and_lid_alt(peer):
+            meta = self._peer_meta.get(session_id(candidate))
+            if meta is not None:
+                meta.pending_prekey = None
+
+    def _peer_and_lid_alt(self, peer: JID) -> list[JID]:
+        peers = [peer]
+        if peer.server == "lid":
+            pn_user = self._lid_map.get_pn(peer.user)
+            if pn_user is not None:
+                peers.append(JID(user=pn_user, server="s.whatsapp.net", device=peer.device))
+        else:
+            lid_user = self._lid_map.get_lid(peer.user)
+            if lid_user is not None:
+                peers.append(JID(user=lid_user, server="lid", device=peer.device))
+        return peers
 
     # --- internals -----------------------------------------------
 
@@ -546,13 +572,15 @@ class Sender:
             )
 
         _log.info("sender: ack id=%s", message_id)
-        # On a successful send, discard any pending-prekey metadata so
-        # the next outbound message uses a plain SignalMessage.
-        for peer in encrypted_devices:
-            resolved_peer = await self._resolve_signal_address(peer)
-            meta = self._peer_meta.get(session_id(resolved_peer))
-            if meta is not None:
-                meta.pending_prekey = None
+        # NOTE: we deliberately do NOT clear the pending-prekey here. A
+        # server ack only means the edge accepted the stanza; it does not
+        # mean the peer has processed the prekey bundle. libsignal keeps
+        # sending the pkmsg preamble on every message until it DECRYPTS an
+        # inbound message from the peer (SessionCipher.ClearUnackPreKey is
+        # called only on decrypt). The preamble is cleared in
+        # note_incoming_decrypted(). Clearing on ack made message #2 go out
+        # as a bare `msg` the recipient dropped — only the first message
+        # (the pkmsg) ever arrived.
 
         return Message(
             id=message_id,

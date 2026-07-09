@@ -61,16 +61,11 @@ async def test_outbound_reaction_targets_previously_sent_message() -> None:
         (to_node,) = participants.get_children("to")
         enc_node = to_node.get_child("enc")
         assert enc_node is not None
-        # The reaction rides the session established by the text send.
-        assert enc_node.get_str("type") == "msg"
-        # Recover the proto through the peer's ratchet: the pkmsg from the
-        # text send established it, so decrypt both in order.
-        first_enc = msgs[0].get_child("participants").get_children("to")[0].get_child("enc")  # type: ignore[union-attr]
-        peer.decrypt_pkmsg(
-            first_enc.content_bytes(),  # type: ignore[union-attr]
-            client_identity_public=device.identity_public,
-        )
-        plaintext = peer.decrypt_followup(
+        # The peer has not replied, so the session is still unacknowledged:
+        # every outbound (incl. this reaction) carries the pkmsg preamble
+        # until we decrypt an inbound message (libsignal behaviour).
+        assert enc_node.get_str("type") == "pkmsg"
+        plaintext = peer.decrypt_pkmsg(
             enc_node.content_bytes(), client_identity_public=device.identity_public
         )
         proto = MessageProto()
