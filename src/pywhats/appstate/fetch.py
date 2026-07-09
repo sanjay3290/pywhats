@@ -39,6 +39,7 @@ from typing import Protocol
 
 from pywhats.appstate.keys import AppStateKeyStore
 from pywhats.appstate.patches import (
+    AppStateKeyNotFound,
     HashState,
     Mutation,
     decode_patch,
@@ -339,9 +340,21 @@ class AppStateSyncer:
             patch_list = await parse_patch_list(collection, self._download_external)
             want_snapshot = False
             has_more = patch_list.has_more_patches
-            mutations, state = apply_patch_list(
-                patch_list, self._key_store, self._app_state_store, state
-            )
+            try:
+                mutations, state = apply_patch_list(
+                    patch_list, self._key_store, self._app_state_store, state
+                )
+            except AppStateKeyNotFound as exc:
+                # On a fresh pair the app-state sync keys often haven't
+                # arrived (via APP_STATE_SYNC_KEY_SHARE) when the first
+                # server_sync lands. Not fatal — the next server_sync
+                # resyncs from the persisted cursor once keys are in.
+                _log.warning(
+                    "app-state: sync key not yet available for collection %s; skipping: %s",
+                    name,
+                    exc,
+                )
+                break
             all_mutations.extend(mutations)
 
         if all_mutations and self._on_mutations is not None:

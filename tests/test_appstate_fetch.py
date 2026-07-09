@@ -12,9 +12,11 @@ DecodePatches).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import logging
 
 import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -22,6 +24,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from pywhats.appstate import AppStateSyncKey, InMemoryAppStateKeyStore
 from pywhats.appstate.crypto import expand_app_state_keys
 from pywhats.appstate.fetch import (
+    AppStateSyncer,
     apply_patch_list,
     build_fetch_collection_content,
     parse_patch_list,
@@ -213,3 +216,69 @@ async def test_apply_remove_uses_stored_prev_mac_and_deletes_it() -> None:
     assert state.hash == _ZERO
     assert state.version == 2
     assert app_state.get_mutation_mac(_NAME, index_mac) is None
+
+
+# --- AppStateSyncer: missing sync key on fresh pair -------------------
+
+
+class _NoopTransport:
+    async def send(self, plaintext: bytes) -> None:
+        pass
+
+
+class _CannedIqMap:
+    """Resolves every registered iq immediately with a canned response."""
+
+    def __init__(self, response: Node) -> None:
+        self._response = response
+
+    def register(self, iq_id: str) -> asyncio.Future[Node]:
+        fut: asyncio.Future[Node] = asyncio.get_event_loop().create_future()
+        fut.set_result(self._response)
+        return fut
+
+    def cancel(self, iq_id: str) -> None:
+        pass
+
+
+def _syncer_with_keyless_collection() -> AppStateSyncer:
+    """A syncer whose server returns a patch referencing an unknown key."""
+    collection, _ = _one_patch_collection(version=1)
+    response = Node(
+        tag="iq",
+        attrs={"type": "result"},
+        content=[Node(tag="sync", content=[collection])],
+    )
+    return AppStateSyncer(
+        transport=_NoopTransport(),
+        iq_map=_CannedIqMap(response),
+        key_store=InMemoryAppStateKeyStore(),  # deliberately empty
+        app_state_store=InMemoryAppStateStore(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_with_missing_key_warns_and_returns_empty(caplog) -> None:
+    """On a fresh pair the sync keys may not have arrived yet; a missing
+    key must not raise — just a single warning and an empty result."""
+    syncer = _syncer_with_keyless_collection()
+    with caplog.at_level(logging.WARNING, logger="pywhats.appstate.fetch"):
+        mutations = await syncer.fetch(_NAME)
+    assert mutations == []
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "key" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_server_sync_with_missing_key_logs_no_traceback(caplog) -> None:
+    syncer = _syncer_with_keyless_collection()
+    notification = Node(
+        tag="notification",
+        attrs={"type": "server_sync"},
+        content=[Node(tag="collection", attrs={"name": _NAME})],
+    )
+    with caplog.at_level(logging.DEBUG, logger="pywhats.appstate.fetch"):
+        await syncer.handle_server_sync(notification)
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+    assert not any(r.exc_info for r in caplog.records)
