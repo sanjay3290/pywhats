@@ -39,6 +39,8 @@ class MediaAttachment:
     mimetype: str = ""
     filename: str = ""
     caption: str = ""
+    # Voice note (push-to-talk) flag; only meaningful for kind="audio".
+    ptt: bool = False
     # Required by the downloader protocol; empty means "derive from
     # media_type" (see MediaDownloader.download).
     mms_type: str = ""

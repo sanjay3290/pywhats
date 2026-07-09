@@ -400,12 +400,20 @@ def _video_proto() -> MessageProto:
     return proto
 
 
+def _audio_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.audio_message.ptt = True
+    proto.audio_message.media_key = b"\x23" * 32
+    return proto
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_proto,field",
     [
         pytest.param(_document_proto, "document_message", id="document"),
         pytest.param(_video_proto, "video_message", id="video"),
+        pytest.param(_audio_proto, "audio_message", id="audio"),
     ],
 )
 async def test_own_device_copy_is_dsm_wrapped_for_new_variants(make_proto: Any, field: str) -> None:

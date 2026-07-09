@@ -19,7 +19,7 @@ import pytest
 
 from pywhats import Client
 from pywhats.events import JID, Message
-from pywhats.media.crypto import MEDIA_DOCUMENT, MEDIA_VIDEO, decrypt_media
+from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_VIDEO, decrypt_media
 from pywhats.media.upload import encrypt_media
 from pywhats.proto import Message as MessageProto
 
@@ -31,6 +31,7 @@ pytestmark = pytest.mark.asyncio
 _MEDIA_KEY = b"\x21" * 32
 _DOC_BYTES = b"%PDF-1.4 fake report body " * 40
 _VIDEO_BYTES = b"\x00\x00\x00\x18ftypmp42 fake mp4 payload " * 50
+_AUDIO_BYTES = b"OggS fake opus voice note " * 30
 
 
 async def _connect(client: Client, server: FakeWhatsAppServer) -> None:
@@ -192,6 +193,107 @@ async def test_outbound_send_video_uploads_and_ships_video_message() -> None:
             file_sha256=vid.file_sha256,
         )
         assert recovered == _VIDEO_BYTES
+
+        await client.disconnect()
+
+
+async def test_inbound_voice_note_surfaces_attachment_and_downloads() -> None:
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))
+    enc = encrypt_media(_AUDIO_BYTES, MEDIA_AUDIO, media_key=_MEDIA_KEY)
+
+    async def _fake_get(url: str) -> bytes:
+        assert "mms-type=audio" in url
+        return enc.enc_data
+
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url, media_http_get=_fake_get)
+        client._device = device
+
+        received: list[Message] = []
+
+        @client.on("message")
+        async def _on_message(m: Message) -> None:
+            received.append(m)
+
+        await _connect(client, server)
+
+        proto = MessageProto()
+        aud = proto.audio_message
+        aud.direct_path = "/v/t62.7117-24/aud.enc"
+        aud.media_key = enc.media_key
+        aud.file_sha256 = enc.file_sha256
+        aud.file_enc_sha256 = enc.file_enc_sha256
+        aud.file_length = enc.file_length
+        aud.mimetype = "audio/ogg; codecs=opus"
+        aud.ptt = True
+        aud.seconds = 4
+        await server.deliver_proto(peer, proto, client_device=device)
+
+        await poll_until(lambda: bool(received))
+        media = received[0].media
+        assert media is not None
+        assert media.kind == "audio"
+        assert media.ptt is True
+        assert media.mimetype == "audio/ogg; codecs=opus"
+        assert media.media_type == MEDIA_AUDIO
+        assert media.file_length == len(_AUDIO_BYTES)
+
+        plaintext = await client.download_media(media)
+        assert plaintext == _AUDIO_BYTES
+
+        await client.disconnect()
+
+
+async def test_outbound_send_audio_uploads_and_ships_audio_message() -> None:
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=1))
+    posted: list[tuple[str, bytes]] = []
+
+    async def _fake_post(url: str, body: bytes) -> bytes:
+        posted.append((url, body))
+        return (
+            b'{"url": "https://mmg.whatsapp.net/v/aud.enc?ccb=1",'
+            b' "direct_path": "/v/aud.enc", "handle": ""}'
+        )
+
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url, media_http_post=_fake_post)
+        client._device = device
+
+        await _connect(client, server)
+
+        chat = JID(user="15559990000", server="s.whatsapp.net", device=1)
+        await client.send_audio(chat, _AUDIO_BYTES, ptt=True)
+
+        assert posted, "no media upload POST happened"
+        assert "/mms/audio/" in posted[0][0]
+
+        msgs = [n for n in server.received if n.tag == "message"]
+        assert msgs, "server never received an outbound message"
+        participants = msgs[0].get_child("participants")
+        assert participants is not None
+        (to_node,) = participants.get_children("to")
+        enc_node = to_node.get_child("enc")
+        assert enc_node is not None
+        plaintext = peer.decrypt_pkmsg(
+            enc_node.content_bytes(), client_identity_public=device.identity_public
+        )
+        proto = MessageProto()
+        proto.ParseFromString(plaintext)
+        aud = proto.audio_message
+        assert aud.ptt is True
+        assert aud.mimetype == "audio/ogg; codecs=opus"
+        assert aud.direct_path == "/v/aud.enc"
+        assert aud.file_length == len(_AUDIO_BYTES)
+        recovered = decrypt_media(
+            posted[0][1],
+            aud.media_key,
+            MEDIA_AUDIO,
+            file_enc_sha256=aud.file_enc_sha256,
+            file_sha256=aud.file_sha256,
+        )
+        assert recovered == _AUDIO_BYTES
 
         await client.disconnect()
 

@@ -552,6 +552,42 @@ class Client:
             vid.caption = caption
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
 
+    async def send_audio(
+        self,
+        chat: JID,
+        audio_bytes: bytes,
+        *,
+        mimetype: str = "audio/ogg; codecs=opus",
+        ptt: bool = False,
+    ) -> Message:
+        """Upload audio and send it as an ``AudioMessage`` to ``chat``.
+
+        ``ptt=True`` marks a voice note (push-to-talk), rendered with
+        the play/waveform UI. Same pipeline as :meth:`send_image`.
+        """
+        if not self._connected or self._media_uploader is None:
+            raise NotConnected("call connect() before send_audio")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.media.crypto import MEDIA_AUDIO
+        from pywhats.proto import Message as MessageProto
+
+        upload = await self._media_uploader.upload(audio_bytes, MEDIA_AUDIO)
+        proto = MessageProto()
+        aud = proto.audio_message
+        aud.url = upload.url
+        aud.direct_path = upload.direct_path
+        aud.media_key = upload.media_key
+        aud.file_enc_sha256 = upload.file_enc_sha256
+        aud.file_sha256 = upload.file_sha256
+        aud.file_length = upload.file_length
+        aud.mimetype = mimetype
+        if ptt:
+            aud.ptt = True
+        return await sender.send_message(chat, proto)  # type: ignore[no-any-return]
+
     async def send_document(
         self,
         chat: JID,

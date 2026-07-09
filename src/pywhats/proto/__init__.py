@@ -27,6 +27,7 @@ from .companion_reg_pb2 import (
 )
 from .e2e_pb2 import (
     AppStateSyncKey,
+    AudioMessage,
     AppStateSyncKeyData,
     AppStateSyncKeyId,
     AppStateSyncKeyRequest,
@@ -81,6 +82,7 @@ __all__ = [
     "AppStateSyncKeyRequest",
     "AppStateSyncKeyShare",
     "ArchiveChatAction",
+    "AudioMessage",
     "ClientPayload",
     "ContactAction",
     "ContextInfo",
