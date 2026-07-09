@@ -62,12 +62,17 @@ async def test_outbound_edit_builds_protocol_message() -> None:
         )
         proto = MessageProto()
         proto.ParseFromString(plaintext)
-        pm = proto.protocol_message
+        # An edit is wrapped in Message.edited_message (FutureProofMessage);
+        # the recipient recognises an edit by this outer field, not a bare
+        # protocol_message (whatsmeow BuildEdit).
+        assert proto.HasField("edited_message")
+        pm = proto.edited_message.message.protocol_message
         assert pm.type == ProtocolMessage.MESSAGE_EDIT
         assert pm.key.id == "3EB0EDITTARGET01"
         assert pm.key.from_me is True
         assert pm.key.remote_jid == "15559990000@s.whatsapp.net"
         assert pm.edited_message.conversation == "edited text"
+        assert pm.timestamp_ms > 0
 
         await client.disconnect()
 
@@ -158,8 +163,9 @@ async def test_inbound_edit_emits_message_edit_event() -> None:
 
         await _connect(client, server)
 
+        # A real peer wraps the edit in Message.edited_message.
         proto = MessageProto()
-        pm = proto.protocol_message
+        pm = proto.edited_message.message.protocol_message
         pm.type = ProtocolMessage.MESSAGE_EDIT
         pm.key.remote_jid = str(device.jid)
         pm.key.from_me = False

@@ -628,6 +628,14 @@ class Receiver:
         events rather than a fresh ``message``. Still acks with a delivery
         receipt.
         """
+        # An edit arrives wrapped in Message.edited_message
+        # (FutureProofMessage); unwrap to the inner protocol_message. A
+        # revoke arrives as a bare protocol_message (whatsmeow BuildEdit /
+        # BuildRevoke).
+        if proto.HasField("edited_message"):
+            inner = proto.edited_message.message
+            if inner.HasField("protocol_message"):
+                proto = inner
         if not proto.HasField("protocol_message"):
             return False
         pm = proto.protocol_message

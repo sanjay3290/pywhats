@@ -33,6 +33,10 @@ message Message {
   // it as outgoing. Upstream field number is 31 (whatsmeow waE2E).
   optional DeviceSentMessage device_sent_message = 31;
   optional ReactionMessage reaction_message = 46;          // emoji reaction
+  // A message edit is wrapped here (FutureProofMessage), NOT sent as a
+  // bare protocol_message: the recipient recognises an edit by this
+  // outer field (whatsmeow BuildEdit / getEditAttribute). Field 58.
+  optional FutureProofMessage edited_message = 58;
 
   // Note: many other body variants (video, audio, document, sticker,
   // contact, location, poll, reaction, etc.) exist on the wire and will
@@ -143,6 +147,12 @@ message StickerMessage {
   optional bool is_animated = 13;
 }
 
+// Wrapper used for edits (and, upstream, view-once / ephemeral). Only
+// the ``message`` field is modelled. Mirrors whatsmeow FutureProofMessage.
+message FutureProofMessage {
+  optional Message message = 1;
+}
+
 message SenderKeyDistributionMessage {
   optional string group_id = 1;
   optional bytes axolotl_sender_key_distribution_message = 2;
@@ -205,6 +215,7 @@ message ProtocolMessage {
   // 24, which round-tripped in self-tests but broke real-WhatsApp
   // interop in both directions.
   optional Message edited_message = 14;  // new body for a MESSAGE_EDIT
+  optional int64 timestamp_ms = 15;      // edit timestamp (whatsmeow BuildEdit)
 
   enum Type {
     REVOKE = 0;

@@ -615,25 +615,34 @@ class Client:
         if sender is None:
             raise NotConnected("message sender is not wired up")
 
+        import time
+
         from pywhats.proto import Message as MessageProto
         from pywhats.proto import ProtocolMessage
 
         proto = MessageProto()
-        pm = proto.protocol_message
-        pm.key.remote_jid = f"{chat.user}@{chat.server}"
-        pm.key.from_me = from_me
-        pm.key.id = message_id
-        if participant is not None:
-            pm.key.participant = f"{participant.user}@{participant.server}"
         if revoke:
+            # A revoke is a BARE protocol_message (whatsmeow BuildRevoke).
+            pm = proto.protocol_message
             pm.type = ProtocolMessage.REVOKE
             # EditAttribute values from public writeups: "7" sender
             # revoke (own message), "8" admin revoke (another member's).
             edit_attr = "7" if from_me else "8"
         else:
+            # An edit is WRAPPED in Message.edited_message (FutureProofMessage);
+            # the recipient recognises an edit by that outer field, not a bare
+            # protocol_message (whatsmeow BuildEdit). Sending it bare decrypts
+            # fine but is silently ignored — the message never updates.
+            pm = proto.edited_message.message.protocol_message
             pm.type = ProtocolMessage.MESSAGE_EDIT
             pm.edited_message.conversation = new_text or ""
+            pm.timestamp_ms = int(time.time() * 1000)
             edit_attr = "1"  # EditAttributeMessageEdit (public writeups)
+        pm.key.remote_jid = f"{chat.user}@{chat.server}"
+        pm.key.from_me = from_me
+        pm.key.id = message_id
+        if participant is not None:
+            pm.key.participant = f"{participant.user}@{participant.server}"
         return await sender.send_message(  # type: ignore[no-any-return]
             chat, proto, edit=edit_attr
         )
