@@ -103,6 +103,41 @@ async def test_outbound_revoke_builds_protocol_message() -> None:
         await client.disconnect()
 
 
+async def test_admin_revoke_uses_edit_8_and_sets_participant() -> None:
+    """Revoking a message you did not send (from_me=False, i.e. a group
+    admin revoke) must use edit=\"8\" (AdminRevoke) and put the original
+    author in key.participant — not edit=\"7\" with no participant."""
+    device = paired_device()
+    chat = JID(user="15559990000", server="s.whatsapp.net", device=1)
+    peer = SignalPeer(jid=chat)
+    author = JID(user="15551112222", server="s.whatsapp.net")
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url)
+        client._device = device
+
+        await _connect(client, server)
+
+        await client.revoke_message(chat, "3EB0OTHERSMSG01", from_me=False, participant=author)
+
+        msgs = [n for n in server.received if n.tag == "message"]
+        assert msgs, "server never received the revoke"
+        assert msgs[0].get_str("edit") == "8"
+        enc_node = msgs[0].get_child("participants").get_children("to")[0].get_child("enc")  # type: ignore[union-attr]
+        plaintext = peer.decrypt_pkmsg(
+            enc_node.content_bytes(),  # type: ignore[union-attr]
+            client_identity_public=device.identity_public,
+        )
+        proto = MessageProto()
+        proto.ParseFromString(plaintext)
+        pm = proto.protocol_message
+        assert pm.type == ProtocolMessage.REVOKE
+        assert pm.key.id == "3EB0OTHERSMSG01"
+        assert pm.key.from_me is False
+        assert pm.key.participant == "15551112222@s.whatsapp.net"
+
+        await client.disconnect()
+
+
 async def test_inbound_edit_emits_message_edit_event() -> None:
     device = paired_device()
     peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))

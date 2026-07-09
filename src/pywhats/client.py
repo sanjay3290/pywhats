@@ -582,13 +582,22 @@ class Client:
         message_id: str,
         *,
         from_me: bool = True,
+        participant: JID | None = None,
     ) -> Message:
         """Delete (revoke) an earlier message for everyone (whatsmeow ``BuildRevoke``).
 
-        Ships a ProtocolMessage{type=REVOKE, key} with the outer stanza
-        ``edit="7"`` attribute.
+        For your own message (``from_me=True``, the default) this ships a
+        ProtocolMessage{type=REVOKE, key} with the outer stanza
+        ``edit="7"`` (sender revoke). To revoke another member's message
+        as a group admin, pass ``from_me=False`` and ``participant=`` the
+        original author's JID: that uses ``edit="8"`` (admin revoke) and
+        sets ``key.participant``. Note the full group admin-revoke *send
+        path* (routing to the group) is not wired yet — the builder is
+        correct but delivery to a ``@g.us`` chat is future work.
         """
-        return await self._send_protocol_edit(chat, message_id, from_me, new_text=None, revoke=True)
+        return await self._send_protocol_edit(
+            chat, message_id, from_me, new_text=None, revoke=True, participant=participant
+        )
 
     async def _send_protocol_edit(
         self,
@@ -598,6 +607,7 @@ class Client:
         *,
         new_text: str | None,
         revoke: bool,
+        participant: JID | None = None,
     ) -> Message:
         if not self._connected:
             raise NotConnected("call connect() first")
@@ -613,9 +623,13 @@ class Client:
         pm.key.remote_jid = f"{chat.user}@{chat.server}"
         pm.key.from_me = from_me
         pm.key.id = message_id
+        if participant is not None:
+            pm.key.participant = f"{participant.user}@{participant.server}"
         if revoke:
             pm.type = ProtocolMessage.REVOKE
-            edit_attr = "7"  # EditAttributeSenderRevoke (public writeups)
+            # EditAttribute values from public writeups: "7" sender
+            # revoke (own message), "8" admin revoke (another member's).
+            edit_attr = "7" if from_me else "8"
         else:
             pm.type = ProtocolMessage.MESSAGE_EDIT
             pm.edited_message.conversation = new_text or ""
