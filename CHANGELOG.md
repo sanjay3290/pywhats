@@ -35,19 +35,38 @@ the account's own devices wrapped in `DeviceSentMessage`.
   `ContextInfo` quoting the target. Inbound replies expose the quote on
   `Message.quoted` (`events.QuotedMessage`: stanza id, participant, text).
 - **Edits + revoke.** `Client.edit_message(chat, message_id, new_text)`
-  and `Client.revoke_message(chat, message_id)` build the matching
-  `ProtocolMessage` (`MESSAGE_EDIT` / `REVOKE`) with the correct
-  `MessageKey` and the outer `edit` stanza attribute. Inbound edits and
-  revokes from a peer surface as `message_edit` / `message_revoke` events
-  (`events.MessageEdit` / `MessageRevoke`).
+  and `Client.revoke_message(chat, message_id)`. An edit is wrapped in
+  `Message.edited_message` (a `FutureProofMessage`) around the
+  `ProtocolMessage` — the recipient recognises edits by that outer field
+  (a bare `protocol_message` is silently ignored); a revoke is a bare
+  `ProtocolMessage`. Inbound edits and revokes from a peer surface as
+  `message_edit` / `message_revoke` events (`events.MessageEdit` /
+  `MessageRevoke`).
+
+### Fixed (live delivery)
+
+Real-peer testing surfaced several send-path bugs that self-round-trip
+tests could not (both sides used the same code); all are fixed and
+verified end-to-end against real WhatsApp:
+
+- **Only the first message to a peer was delivered.** The pkmsg
+  (`PreKeySignalMessage`) preamble was dropped after the server ack; per
+  libsignal it must ride every message until an inbound reply confirms
+  the session, so the recipient discarded every bare follow-up.
+- **Media used an invalid stanza type.** Media now goes out as
+  `type="media"` with an `<enc mediatype=...>` attribute (image / video /
+  audio / ptt / document / sticker), matching whatsmeow.
+- **Edits were sent bare** and so never applied; they are now wrapped in
+  `Message.edited_message` as above.
+- Reaction / edit / revoke `<enc>` nodes now carry `decrypt-fail="hide"`.
 
 ### Notes
 
-- Send-side of documents, audio (ptt), stickers, reactions, edits, and
-  revoke is **live-verified** (server-ACKed against the real WhatsApp
-  edge on a resumed session). Video send and all inbound directions are
-  fakeserver-verified only; full on-device rendering still needs a human
-  eyeball. The Signal crypto remains clean-room and **unaudited**.
+- All 0.2.0 message types are **live-verified end-to-end** (rendered on a
+  real recipient's phone): text, document, image, sticker, video, voice
+  note, quoted reply, reaction, edit, and revoke. Inbound handling is
+  fakeserver-verified. The Signal crypto remains clean-room and
+  **unaudited**.
 
 ## [0.1.1] - 2026-07-09
 
