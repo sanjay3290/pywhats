@@ -47,6 +47,20 @@ class MediaAttachment:
 
 
 @dataclass(slots=True)
+class QuotedMessage:
+    """The message a reply quotes, surfaced from an inbound ContextInfo.
+
+    ``stanza_id`` is the quoted message's id; ``participant`` is the
+    quoted author's JID string; ``text`` is the quoted body text (empty
+    if it wasn't a text message we can render).
+    """
+
+    stanza_id: str
+    participant: str
+    text: str
+
+
+@dataclass(slots=True)
 class Message:
     id: str
     chat: JID
@@ -56,6 +70,8 @@ class Message:
     from_me: bool = False
     # Set when the message carries a downloadable attachment.
     media: MediaAttachment | None = None
+    # Set when the message is a reply quoting an earlier message.
+    quoted: QuotedMessage | None = None
 
 
 @dataclass(slots=True)

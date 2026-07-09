@@ -725,19 +725,23 @@ class Client:
                 event_name, payload = mapped
                 await self._emit(event_name, payload)
 
-    async def send_text(self, chat: JID, text: str) -> Message:
+    async def send_text(self, chat: JID, text: str, *, reply_to: Any = None) -> Message:
         """Encrypt and send a text message to ``chat``.
 
         Requires :meth:`connect` to have been called first and a
         :class:`pywhats.messaging.Sender` to have been attached via
         :meth:`_install_sender` during the connect path.
+
+        ``reply_to`` quotes an earlier message: pass the inbound
+        :class:`pywhats.events.Message` (or a ``MessageKey`` proto) being
+        replied to and the reply carries its quote metadata.
         """
         if not self._connected:
             raise NotConnected("call connect() first")
         sender = getattr(self, "_sender", None)
         if sender is None:
             raise NotConnected("message sender is not wired up")
-        return await sender.send_text(chat, text)  # type: ignore[no-any-return]
+        return await sender.send_text(chat, text, reply_to=reply_to)  # type: ignore[no-any-return]
 
     async def mark_read(
         self, chat: JID, message_ids: list[str], *, sender: JID | None = None

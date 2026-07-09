@@ -422,6 +422,13 @@ def _reaction_proto() -> MessageProto:
     return proto
 
 
+def _reply_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.extended_text_message.text = "my reply"
+    proto.extended_text_message.context_info.stanza_id = "3EB0ORIGINALID99"
+    return proto
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_proto,field",
@@ -431,6 +438,7 @@ def _reaction_proto() -> MessageProto:
         pytest.param(_audio_proto, "audio_message", id="audio"),
         pytest.param(_sticker_proto, "sticker_message", id="sticker"),
         pytest.param(_reaction_proto, "reaction_message", id="reaction"),
+        pytest.param(_reply_proto, "extended_text_message", id="reply"),
     ],
 )
 async def test_own_device_copy_is_dsm_wrapped_for_new_variants(make_proto: Any, field: str) -> None:

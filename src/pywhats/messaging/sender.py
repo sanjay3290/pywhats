@@ -210,7 +210,7 @@ class Sender:
 
     # --- public API ----------------------------------------------
 
-    async def send_text(self, chat: JID, text: str) -> Message:
+    async def send_text(self, chat: JID, text: str, *, reply_to: object | None = None) -> Message:
         """Encrypt, send, and await the server ack for a single text message.
 
         Raises :class:`TimeoutError` if no ack arrives within
@@ -218,8 +218,45 @@ class Sender:
         server returns a ``<retry>`` stanza by discarding the peer
         session, fetching a fresh prekey bundle, and rebuilding the
         ciphertext under a new session.
+
+        ``reply_to`` quotes an earlier message: pass the inbound
+        :class:`pywhats.events.Message` (or a :class:`MessageKey` proto)
+        being replied to and the body is wrapped in an
+        ExtendedTextMessage carrying its ContextInfo.
         """
-        return await self.send_message(chat, MessageProto(conversation=text), text=text)
+        if reply_to is not None:
+            proto = self._build_reply_proto(text, reply_to)
+        else:
+            proto = MessageProto(conversation=text)
+        return await self.send_message(chat, proto, text=text)
+
+    @staticmethod
+    def _build_reply_proto(text: str, reply_to: object) -> MessageProto:
+        """Build an ExtendedTextMessage quoting ``reply_to`` (whatsmeow BuildReply).
+
+        Accepts either an :class:`pywhats.events.Message` (what handlers
+        receive — has a ``sender`` JID and body ``text``) or a
+        ``MessageKey`` proto (author on ``.participant``).
+        """
+        proto = MessageProto()
+        etm = proto.extended_text_message
+        etm.text = text
+        ci = etm.context_info
+        sender = getattr(reply_to, "sender", None)
+        if sender is not None:
+            # events.Message: id + sender JID + the quoted body text.
+            ci.stanza_id = reply_to.id  # type: ignore[attr-defined]
+            ci.participant = f"{sender.user}@{sender.server}"
+            quoted_text = getattr(reply_to, "text", "") or ""
+            if quoted_text:
+                ci.quoted_message.conversation = quoted_text
+        else:
+            # MessageKey proto: id on .id, author on .participant.
+            ci.stanza_id = getattr(reply_to, "id", "") or ""
+            participant = getattr(reply_to, "participant", "") or ""
+            if participant:
+                ci.participant = participant
+        return proto
 
     async def send_message(
         self,

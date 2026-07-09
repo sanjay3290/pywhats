@@ -60,7 +60,7 @@ from pywhats.binary import Node, decode, encode
 from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
-from pywhats.events import JID, MediaAttachment, Message, Reaction
+from pywhats.events import JID, MediaAttachment, Message, QuotedMessage, Reaction
 from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_IMAGE, MEDIA_VIDEO
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
@@ -468,6 +468,7 @@ class Receiver:
 
         handled_protocol = self._handle_protocol_message(proto, sender_jid)
         media = _extract_media(proto)
+        quoted = _extract_quoted(proto)
 
         if not text and not handled_protocol and media is None:
             # Some Message body variants aren't modelled in our proto
@@ -492,6 +493,7 @@ class Receiver:
             timestamp=timestamp,
             from_me=False,
             media=media,
+            quoted=quoted,
         )
         await self._safe_emit("message", message)
 
@@ -1136,3 +1138,20 @@ def _extract_media(proto: MessageProto) -> MediaAttachment | None:
             mimetype=stk.mimetype,
         )
     return None
+
+
+def _extract_quoted(proto: MessageProto) -> QuotedMessage | None:
+    """Surface a reply's quoted message from an ExtendedTextMessage's ContextInfo."""
+    if not proto.HasField("extended_text_message"):
+        return None
+    etm = proto.extended_text_message
+    if not etm.HasField("context_info"):
+        return None
+    ci = etm.context_info
+    if not ci.stanza_id:
+        return None
+    return QuotedMessage(
+        stanza_id=ci.stanza_id,
+        participant=ci.participant,
+        text=_extract_text(ci.quoted_message) if ci.HasField("quoted_message") else "",
+    )
