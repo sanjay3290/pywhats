@@ -281,6 +281,181 @@ async def test_send_text_fans_out_to_recipient_and_own_devices() -> None:
     assert stanza.get_child("device-identity") is not None
 
 
+def _decrypt_pkmsg_node(
+    enc_node: Any,
+    bob_ik: IdentityKeyPair,
+    bob_spk: SignedPreKey,
+    bob_opk: Any,
+    alice_public: bytes,
+) -> MessageProto:
+    """Responder-side decrypt of one participant ``<enc type=pkmsg>``."""
+    from pywhats.messaging.padding import unpad_random_max16
+    from pywhats.signal.experimental import ratchet_decrypt as _decrypt
+
+    pkmsg = PreKeySignalMessage.decode(enc_node.content_bytes())
+    br = x3dh_responder(bob_ik, bob_spk, bob_opk, pkmsg.identity_key, pkmsg.base_key)
+    state = ratchet_init_bob(br.shared_secret, bob_spk.private, bob_spk.public)
+    ad = alice_public + bob_ik.public
+    plaintext = _decrypt(
+        state,
+        pkmsg.message.header,
+        pkmsg.message.ciphertext,
+        ad,
+        verify_mac=lambda mac_key: pkmsg.message.verify_mac(
+            alice_public,
+            bob_ik.public,
+            mac_key,
+        ),
+    )
+    proto = MessageProto()
+    proto.ParseFromString(unpad_random_max16(plaintext))
+    return proto
+
+
+@pytest.mark.asyncio
+async def test_own_device_copy_is_wrapped_in_device_sent_message() -> None:
+    """Issue: the copy fanned out to our own devices must be a DSM wrapper.
+
+    The peer's device decrypts to the bare original ``Message``; our own
+    other device decrypts to ``Message { device_sent_message {
+    destination_jid: <peer>, message: <original> } }`` so it renders the
+    message as outgoing in the chat's sent view.
+    """
+    transport = FakeTransport()
+    router = AckRouter()
+    bob_ik, bob_spk, bob_opk, bundle = _make_bob_bundle()
+    alice_ik = IdentityKeyPair.generate()
+    identity = FakeIdentity(
+        identity_private=alice_ik.private,
+        identity_public=alice_ik.public,
+        registration_id=9991,
+    )
+    own_jid = JID(user="15550001111", server="s.whatsapp.net", device=3)
+    chat = JID(user="15557654321", server="s.whatsapp.net")
+    own_other_device = JID(user=own_jid.user, server=own_jid.server, device=9)
+
+    async def fetcher(_peer: JID) -> PreKeyBundle:
+        return bundle
+
+    async def devices(_users: Iterable[JID]) -> dict[JID, UserSyncEntry]:
+        return {
+            chat: UserSyncEntry(devices=[chat]),
+            JID(user=own_jid.user, server=own_jid.server): UserSyncEntry(
+                devices=[own_jid, own_other_device]
+            ),
+        }
+
+    sender = Sender(
+        transport=transport,
+        router=router,
+        session_store=InMemorySessionStore(),
+        identity=identity,
+        prekey_fetcher=fetcher,
+        device_fetcher=devices,
+        own_jid=own_jid,
+        config=SenderConfig(ack_timeout_seconds=1.0),
+    )
+
+    task = asyncio.create_task(sender.send_text(chat, "dsm test"))
+    for _ in range(50):
+        if transport.frames and router.pending_ids():
+            break
+        await asyncio.sleep(0.01)
+    router.resolve_ack(router.pending_ids()[0])
+    await task
+
+    stanza = decode(transport.frames[0])
+    participants = stanza.get_child("participants")
+    assert participants is not None
+    nodes = {node.attrs["jid"]: node.get_child("enc") for node in participants.get_children("to")}
+    assert set(nodes) == {chat, own_other_device}
+
+    peer_proto = _decrypt_pkmsg_node(
+        nodes[chat], bob_ik, bob_spk, bob_opk, identity.identity_public
+    )
+    assert peer_proto.conversation == "dsm test"
+    assert not peer_proto.HasField("device_sent_message")
+
+    own_proto = _decrypt_pkmsg_node(
+        nodes[own_other_device], bob_ik, bob_spk, bob_opk, identity.identity_public
+    )
+    assert own_proto.HasField("device_sent_message")
+    dsm = own_proto.device_sent_message
+    assert dsm.destination_jid == "15557654321@s.whatsapp.net"
+    assert dsm.message.conversation == "dsm test"
+    assert not dsm.message.HasField("device_sent_message")
+
+
+@pytest.mark.asyncio
+async def test_retry_receipt_from_own_device_resends_dsm_wrapper() -> None:
+    """A retry from our own other device must re-encrypt the DSM copy."""
+    transport = FakeTransport()
+    router = AckRouter()
+    bob_ik, bob_spk, bob_opk, bundle = _make_bob_bundle()
+    alice_ik = IdentityKeyPair.generate()
+    identity = FakeIdentity(
+        identity_private=alice_ik.private,
+        identity_public=alice_ik.public,
+        registration_id=9991,
+    )
+    own_jid = JID(user="15550001111", server="s.whatsapp.net", device=3)
+    chat = JID(user="15557654321", server="s.whatsapp.net")
+    own_other_device = JID(user=own_jid.user, server=own_jid.server, device=9)
+
+    async def fetcher(_peer: JID) -> PreKeyBundle:
+        return bundle
+
+    async def devices(_users: Iterable[JID]) -> dict[JID, UserSyncEntry]:
+        return {
+            chat: UserSyncEntry(devices=[chat]),
+            JID(user=own_jid.user, server=own_jid.server): UserSyncEntry(
+                devices=[own_jid, own_other_device]
+            ),
+        }
+
+    sender = Sender(
+        transport=transport,
+        router=router,
+        session_store=InMemorySessionStore(),
+        identity=identity,
+        prekey_fetcher=fetcher,
+        device_fetcher=devices,
+        own_jid=own_jid,
+        config=SenderConfig(ack_timeout_seconds=1.0),
+    )
+
+    task = asyncio.create_task(sender.send_text(chat, "retry dsm"))
+    for _ in range(50):
+        if transport.frames and router.pending_ids():
+            break
+        await asyncio.sleep(0.01)
+    message_id = router.pending_ids()[0]
+    router.resolve_ack(message_id)
+    await task
+
+    retry_task = asyncio.create_task(
+        sender.handle_retry_receipt(message_id, own_other_device, bundle, count=1)
+    )
+    for _ in range(50):
+        if len(transport.frames) >= 2 and router.pending_ids():
+            break
+        await asyncio.sleep(0.01)
+    router.resolve_ack(message_id)
+    await retry_task
+
+    stanza = decode(transport.frames[1])
+    participants = stanza.get_child("participants")
+    assert participants is not None
+    (to_node,) = participants.get_children("to")
+    assert to_node.attrs["jid"] == own_other_device
+    proto = _decrypt_pkmsg_node(
+        to_node.get_child("enc"), bob_ik, bob_spk, bob_opk, identity.identity_public
+    )
+    assert proto.HasField("device_sent_message")
+    assert proto.device_sent_message.destination_jid == "15557654321@s.whatsapp.net"
+    assert proto.device_sent_message.message.conversation == "retry dsm"
+
+
 @pytest.mark.skip(
     reason="Outbound PN->LID resolution is temporarily disabled — live test "
     "showed LID-keyed outbound silently dropped on delivery. Inbound LID "

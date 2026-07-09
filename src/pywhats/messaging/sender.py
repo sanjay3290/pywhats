@@ -157,6 +157,11 @@ class _SentMessage:
     chat: JID
     text: str
     plaintext: bytes
+    # The DSM-wrapped variant shipped to our OWN other devices (see
+    # _build_dsm_plaintext). Kept alongside `plaintext` so a retry
+    # receipt from one of our own devices re-encrypts the wrapper, not
+    # the bare body.
+    own_plaintext: bytes = b""
     retry_count: int = 0
 
 
@@ -224,6 +229,7 @@ class Sender:
         """
         message_id = new_message_id()
         plaintext = pad_random_max16(message_proto.SerializeToString())
+        own_plaintext = self._build_dsm_plaintext(chat, message_proto)
         _log.info("sender: preparing message id=%s to=%s", message_id, _fmt_jid(chat))
 
         message = await self._send_once(
@@ -231,10 +237,27 @@ class Sender:
             text=text,
             message_id=message_id,
             plaintext=plaintext,
+            own_plaintext=own_plaintext,
             allow_retry=True,
         )
-        self._sent[message.id] = _SentMessage(chat=chat, text=text, plaintext=plaintext)
+        self._sent[message.id] = _SentMessage(
+            chat=chat, text=text, plaintext=plaintext, own_plaintext=own_plaintext
+        )
         return message
+
+    def _build_dsm_plaintext(self, chat: JID, message_proto: MessageProto) -> bytes:
+        """WA-pad the ``DeviceSentMessage`` wrapper for our own devices.
+
+        When a companion sends, the copy fanned out to the account's own
+        other devices must be ``Message { device_sent_message {
+        destination_jid, message } }`` — that wrapper is what tells them
+        "I sent this to <peer>" so they render it as outgoing. An
+        unwrapped copy is silently dropped.
+        """
+        dsm = MessageProto()
+        dsm.device_sent_message.destination_jid = str(_base_jid(chat))
+        dsm.device_sent_message.message.CopyFrom(message_proto)
+        return pad_random_max16(dsm.SerializeToString())
 
     async def send_group_text(self, group: JID, text: str, participants: list[JID]) -> Message:
         """Send a text message to a group via sender-key fan-out (#39).
@@ -355,7 +378,12 @@ class Sender:
             self._sessions.save(sid, state)
             self._peer_meta[sid] = meta
 
-        enc_type, ciphertext = await self._encrypt_for_peer(peer, cached.plaintext)
+        # A retry from one of our own devices must re-encrypt the
+        # DSM-wrapped copy, not the bare body.
+        retry_plaintext = cached.plaintext
+        if cached.own_plaintext and _base_jid(peer) == _base_jid(self._own_jid):
+            retry_plaintext = cached.own_plaintext
+        enc_type, ciphertext = await self._encrypt_for_peer(peer, retry_plaintext)
         stanza = self._build_message_node(
             message_id=message_id,
             to=_base_jid(cached.chat),
@@ -387,13 +415,18 @@ class Sender:
         text: str,
         message_id: str,
         plaintext: bytes,
+        own_plaintext: bytes,
         allow_retry: bool,
     ) -> Message:
         target_devices = await self._target_devices(chat)
         participant_nodes: list[Node] = []
         encrypted_devices: list[JID] = []
+        own_base = _base_jid(self._own_jid)
         for device in target_devices:
-            enc_type, ciphertext = await self._encrypt_for_peer(device, plaintext)
+            # Our own other devices get the DSM-wrapped copy; the peer's
+            # devices get the bare body (see _build_dsm_plaintext).
+            device_plaintext = own_plaintext if _base_jid(device) == own_base else plaintext
+            enc_type, ciphertext = await self._encrypt_for_peer(device, device_plaintext)
             # The participant <to jid="..."> MUST match the JID we
             # encrypted under, not the user-facing PN. If we resolve
             # PN -> LID for the Signal session but ship the
@@ -438,6 +471,7 @@ class Sender:
                 text=text,
                 message_id=message_id,
                 plaintext=plaintext,
+                own_plaintext=own_plaintext,
                 allow_retry=False,
             )
 

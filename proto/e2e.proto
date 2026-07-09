@@ -24,10 +24,23 @@ message Message {
   // makes every reply appear as an empty `Message` proto.
   optional ExtendedTextMessage extended_text_message = 6;  // text w/ replies, links
   optional ProtocolMessage protocol_message = 12;          // app-level control
+  // Wrapper for the copy fanned out to our OWN devices when a companion
+  // sends: tells them "I sent this to <destination_jid>" so they render
+  // it as outgoing. Upstream field number is 31 (whatsmeow waE2E).
+  optional DeviceSentMessage device_sent_message = 31;
 
   // Note: many other body variants (video, audio, document, sticker,
   // contact, location, poll, reaction, etc.) exist on the wire and will
   // be added in later phases.
+}
+
+// The own-devices copy of an outbound message. ``destination_jid`` is
+// the base JID of the chat the original was sent to; ``message`` is the
+// original body verbatim.
+message DeviceSentMessage {
+  optional string destination_jid = 1;
+  optional Message message = 2;
+  // optional string phash = 3;  // participant hash — add when needed
 }
 
 // A downloadable image attachment. Field numbers match whatsmeow
