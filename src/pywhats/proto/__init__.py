@@ -40,6 +40,7 @@ from .e2e_pb2 import (
     MessageKey,
     ProtocolMessage,
     SenderKeyDistributionMessage,
+    VideoMessage,
 )
 from .handshake_pb2 import HandshakeMessage
 from .history_sync_pb2 import Conversation, HistorySync, HistorySyncMsg, Pushname
@@ -118,6 +119,7 @@ __all__ = [
     "SyncdValue",
     "SyncdVersion",
     "UserAgent",
+    "VideoMessage",
     "WebInfo",
     "WhisperMessage",
 ]

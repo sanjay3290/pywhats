@@ -516,6 +516,42 @@ class Client:
             img.height = height
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
 
+    async def send_video(
+        self,
+        chat: JID,
+        video_bytes: bytes,
+        *,
+        mimetype: str = "video/mp4",
+        caption: str = "",
+    ) -> Message:
+        """Upload a video and send it as a ``VideoMessage`` to ``chat``.
+
+        Same pipeline as :meth:`send_image`: encrypt + upload to the
+        media CDN, then send a message referencing the upload.
+        """
+        if not self._connected or self._media_uploader is None:
+            raise NotConnected("call connect() before send_video")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.media.crypto import MEDIA_VIDEO
+        from pywhats.proto import Message as MessageProto
+
+        upload = await self._media_uploader.upload(video_bytes, MEDIA_VIDEO)
+        proto = MessageProto()
+        vid = proto.video_message
+        vid.url = upload.url
+        vid.direct_path = upload.direct_path
+        vid.media_key = upload.media_key
+        vid.file_enc_sha256 = upload.file_enc_sha256
+        vid.file_sha256 = upload.file_sha256
+        vid.file_length = upload.file_length
+        vid.mimetype = mimetype
+        if caption:
+            vid.caption = caption
+        return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
+
     async def send_document(
         self,
         chat: JID,

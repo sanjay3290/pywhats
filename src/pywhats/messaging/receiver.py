@@ -61,7 +61,7 @@ from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
 from pywhats.events import JID, MediaAttachment, Message
-from pywhats.media.crypto import MEDIA_DOCUMENT
+from pywhats.media.crypto import MEDIA_DOCUMENT, MEDIA_VIDEO
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
     IdentityStore,
@@ -1072,5 +1072,18 @@ def _extract_media(proto: MessageProto) -> MediaAttachment | None:
             mimetype=doc.mimetype,
             filename=doc.file_name,
             caption=doc.caption,
+        )
+    if proto.HasField("video_message"):
+        vid = proto.video_message
+        return MediaAttachment(
+            kind="video",
+            direct_path=vid.direct_path,
+            media_key=vid.media_key,
+            file_sha256=vid.file_sha256,
+            file_enc_sha256=vid.file_enc_sha256,
+            media_type=MEDIA_VIDEO,
+            file_length=vid.file_length,
+            mimetype=vid.mimetype,
+            caption=vid.caption,
         )
     return None

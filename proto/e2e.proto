@@ -24,6 +24,7 @@ message Message {
   // makes every reply appear as an empty `Message` proto.
   optional ExtendedTextMessage extended_text_message = 6;  // text w/ replies, links
   optional DocumentMessage document_message = 7;           // document attachment
+  optional VideoMessage video_message = 9;                 // video attachment
   optional ProtocolMessage protocol_message = 12;          // app-level control
   // Wrapper for the copy fanned out to our OWN devices when a companion
   // sends: tells them "I sent this to <destination_jid>" so they render
@@ -80,6 +81,26 @@ message DocumentMessage {
   optional string direct_path = 10;
   optional int64 media_key_timestamp = 11;
   optional string caption = 20;
+}
+
+// A downloadable video attachment. Field numbers match whatsmeow waE2E
+// VideoMessage (note the layout differs from ImageMessage: file_sha256
+// is 3, media_key 6, caption 7, file_enc_sha256 11, direct_path 13);
+// only the send/receive-essential subset is modelled.
+message VideoMessage {
+  optional string url = 1;
+  optional string mimetype = 2;
+  optional bytes file_sha256 = 3;
+  optional uint64 file_length = 4;
+  optional uint32 seconds = 5;
+  optional bytes media_key = 6;
+  optional string caption = 7;
+  optional uint32 height = 9;
+  optional uint32 width = 10;
+  optional bytes file_enc_sha256 = 11;
+  optional string direct_path = 13;
+  optional int64 media_key_timestamp = 14;
+  optional bytes jpeg_thumbnail = 16;
 }
 
 message SenderKeyDistributionMessage {

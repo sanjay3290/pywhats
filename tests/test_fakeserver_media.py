@@ -19,7 +19,7 @@ import pytest
 
 from pywhats import Client
 from pywhats.events import JID, Message
-from pywhats.media.crypto import MEDIA_DOCUMENT, decrypt_media
+from pywhats.media.crypto import MEDIA_DOCUMENT, MEDIA_VIDEO, decrypt_media
 from pywhats.media.upload import encrypt_media
 from pywhats.proto import Message as MessageProto
 
@@ -30,6 +30,7 @@ pytestmark = pytest.mark.asyncio
 
 _MEDIA_KEY = b"\x21" * 32
 _DOC_BYTES = b"%PDF-1.4 fake report body " * 40
+_VIDEO_BYTES = b"\x00\x00\x00\x18ftypmp42 fake mp4 payload " * 50
 
 
 async def _connect(client: Client, server: FakeWhatsAppServer) -> None:
@@ -90,6 +91,107 @@ async def test_inbound_document_surfaces_attachment_and_downloads() -> None:
 
         plaintext = await client.download_media(media)
         assert plaintext == _DOC_BYTES
+
+        await client.disconnect()
+
+
+async def test_inbound_video_surfaces_attachment_and_downloads() -> None:
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))
+    enc = encrypt_media(_VIDEO_BYTES, MEDIA_VIDEO, media_key=_MEDIA_KEY)
+
+    async def _fake_get(url: str) -> bytes:
+        assert "mms-type=video" in url
+        return enc.enc_data
+
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url, media_http_get=_fake_get)
+        client._device = device
+
+        received: list[Message] = []
+
+        @client.on("message")
+        async def _on_message(m: Message) -> None:
+            received.append(m)
+
+        await _connect(client, server)
+
+        proto = MessageProto()
+        vid = proto.video_message
+        vid.direct_path = "/v/t62.7161-24/vid.enc"
+        vid.media_key = enc.media_key
+        vid.file_sha256 = enc.file_sha256
+        vid.file_enc_sha256 = enc.file_enc_sha256
+        vid.file_length = enc.file_length
+        vid.mimetype = "video/mp4"
+        vid.caption = "clip"
+        vid.seconds = 12
+        await server.deliver_proto(peer, proto, client_device=device)
+
+        await poll_until(lambda: bool(received))
+        media = received[0].media
+        assert media is not None
+        assert media.kind == "video"
+        assert media.mimetype == "video/mp4"
+        assert media.caption == "clip"
+        assert media.media_type == MEDIA_VIDEO
+        assert media.file_length == len(_VIDEO_BYTES)
+
+        plaintext = await client.download_media(media)
+        assert plaintext == _VIDEO_BYTES
+
+        await client.disconnect()
+
+
+async def test_outbound_send_video_uploads_and_ships_video_message() -> None:
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=1))
+    posted: list[tuple[str, bytes]] = []
+
+    async def _fake_post(url: str, body: bytes) -> bytes:
+        posted.append((url, body))
+        return (
+            b'{"url": "https://mmg.whatsapp.net/v/vid.enc?ccb=1",'
+            b' "direct_path": "/v/vid.enc", "handle": ""}'
+        )
+
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url, media_http_post=_fake_post)
+        client._device = device
+
+        await _connect(client, server)
+
+        chat = JID(user="15559990000", server="s.whatsapp.net", device=1)
+        await client.send_video(chat, _VIDEO_BYTES, mimetype="video/mp4", caption="clip")
+
+        assert posted, "no media upload POST happened"
+        assert "/mms/video/" in posted[0][0]
+
+        msgs = [n for n in server.received if n.tag == "message"]
+        assert msgs, "server never received an outbound message"
+        participants = msgs[0].get_child("participants")
+        assert participants is not None
+        (to_node,) = participants.get_children("to")
+        enc_node = to_node.get_child("enc")
+        assert enc_node is not None
+        plaintext = peer.decrypt_pkmsg(
+            enc_node.content_bytes(), client_identity_public=device.identity_public
+        )
+        proto = MessageProto()
+        proto.ParseFromString(plaintext)
+        vid = proto.video_message
+        assert vid.mimetype == "video/mp4"
+        assert vid.caption == "clip"
+        assert vid.direct_path == "/v/vid.enc"
+        assert vid.file_length == len(_VIDEO_BYTES)
+        recovered = decrypt_media(
+            posted[0][1],
+            vid.media_key,
+            MEDIA_VIDEO,
+            file_enc_sha256=vid.file_enc_sha256,
+            file_sha256=vid.file_sha256,
+        )
+        assert recovered == _VIDEO_BYTES
 
         await client.disconnect()
 
