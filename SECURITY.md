@@ -4,9 +4,9 @@
 
 The Signal Protocol implementation in `pywhats.signal.experimental` is a
 clean-room Python implementation written from the public Signal specifications
-alone (X3DH, Double Ratchet, XEdDSA). It has **not** been reviewed by a
-cryptographer and **must not** be used to protect any production end-to-end
-encrypted traffic until it has been.
+alone (X3DH, Double Ratchet, XEdDSA, and the group sender-key cipher). It has
+**not** been reviewed by a cryptographer and **must not** be used to protect
+any production end-to-end encrypted traffic until it has been.
 
 Concrete reasons for caution:
 

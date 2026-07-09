@@ -3,7 +3,7 @@
 from pywhats.client import Client
 from pywhats.errors import ConnectionClosed, NotConnected, PairingFailed, PyWhatsError
 
-__version__ = "0.2.0"
+__version__ = "0.1.0"
 
 __all__ = [
     "Client",

@@ -7,10 +7,16 @@
 
 Async Python client for the WhatsApp multi-device protocol.
 
-> **Status:** pre-alpha (0.2.0). Phase 2 shipped — app-state sync, media
+> **Status:** pre-alpha (0.1.0) — the first public release. Implements QR
+> pairing, connect, send/receive text, disconnect, app-state sync, media
 > (send/receive images), history sync, read receipts, presence, and group
-> messaging, on top of the Phase 1 core (QR pairing, connect, send/receive
-> text, disconnect).
+> messaging.
+
+> ⚠️ **Use at your own risk.** This is an independent, unofficial client and
+> may violate WhatsApp's Terms of Service — using it can get an account
+> banned; prefer a dedicated number. The bundled Signal crypto
+> (`pywhats.signal.experimental`) is clean-room and **unaudited** — see
+> [SECURITY.md](SECURITY.md).
 
 ## Install
 
@@ -59,10 +65,10 @@ asyncio.run(main())
 
 ## Roadmap
 
-- **0.1.0** — QR pair, connect, send/receive text, disconnect
-- **0.2.0** — app-state sync, media (send/receive images), history sync,
-  read receipts, presence, group messaging
-- **0.3.0+** — more media types (video/audio/document/sticker), message
+- **0.1.0** — QR pair, connect, send/receive text, disconnect, app-state
+  sync, media (send/receive images), history sync, read receipts, presence,
+  group messaging
+- **0.2.0+** — more media types (video/audio/document/sticker), message
   features (reactions/replies/edits), calls, newsletters, business
 
 ## License
