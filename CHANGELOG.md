@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-09
+
+Protocol fixes found while live-testing a companion automation built on
+0.1.0.
+
+### Added
+
+- **`DeviceSentMessage` fan-out.** Messages sent from pywhats now appear on
+  the account's own phone and other linked devices: the copy fanned out to
+  own devices is wrapped in `DeviceSentMessage { destination_jid, message }`
+  (new `Message.device_sent_message` field, upstream number 31), which is
+  what tells them to render it as outgoing. Applies to every body variant
+  and to both retry paths.
+
+### Fixed
+
+- **Terminal `<stream:error>` codes surface as `logged_out`.** Device
+  removal or takeover arrives as `<stream:error code="401"><conflict/>`;
+  codes `401`/`403` now emit the `logged_out` event, mirroring the
+  `<failure>` path, instead of being logged and ignored. The post-pair
+  `515` reconnect signal is unaffected.
+- **No more tracebacks when app-state sync keys haven't arrived.** On a
+  fresh pair, syncing a collection before its `APP_STATE_SYNC_KEY_SHARE`
+  lands now logs a single warning and skips the collection; the next
+  `server_sync` resumes from the persisted cursor.
+- **`status@broadcast` messages no longer spam decrypt errors.** Status
+  updates use sender-key encryption the client holds no session for; they
+  are now skipped quietly instead of emitting `decrypt_error` events and
+  retry receipts.
+
 ## [0.1.0] - 2026-07-09
 
 First public release. An async Python client for the WhatsApp multi-device
@@ -84,4 +114,5 @@ Security).
   `pywhats.signal.experimental` are unaudited; the module emits a
   `DeprecationWarning` on import. See SECURITY.md.
 
+[0.1.1]: https://github.com/sanjay3290/pywhats/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sanjay3290/pywhats/releases/tag/v0.1.0

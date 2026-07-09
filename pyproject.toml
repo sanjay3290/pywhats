@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pywhats"
-version = "0.1.0"
+version = "0.1.1"
 description = "Async Python client for the WhatsApp multi-device protocol"
 readme = "README.md"
 license = "Apache-2.0"
