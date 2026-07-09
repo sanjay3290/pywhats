@@ -329,12 +329,20 @@ class Receiver:
         elif tag == "failure":
             await self._handle_failure(node)
         elif tag == "stream:error":
+            code = node.get_str("code")
             _log.warning(
                 "receiver: <stream:error> code=%s attrs=%s children=%s",
-                node.get_str("code"),
+                code,
                 dict(node.attrs),
                 [c.tag for c in node.get_children()],
             )
+            # Terminal codes mirror the <failure> path: 401 (device
+            # removed / conflict takeover) and 403 (banned) mean the
+            # session is dead and the caller must re-pair. 515 is the
+            # post-pair "reconnect now" signal (client.py) and any other
+            # code stays log-only.
+            if code in ("401", "403"):
+                await self._safe_emit("logged_out", code)
         else:
             _log.debug("receiver: ignoring unknown stanza tag=%r", tag)
 
@@ -366,6 +374,13 @@ class Receiver:
         sender_jid = _jid_from_attr(from_attr)
         if sender_jid.server == "g.us":
             await self._handle_group_message(node, group=sender_jid)
+            return
+        if sender_jid.user == "status" and sender_jid.server == "broadcast":
+            # Status updates are sender-key (skmsg) encrypted and we hold
+            # no status sender-key session; prekey churn also yields
+            # unknown-OPK pkmsgs. Both are expected — skip quietly rather
+            # than emitting decrypt_error / retry receipts.
+            _log.debug("receiver: ignoring status@broadcast message id=%s", message_id)
             return
         chat_jid = sender_jid  # 1-1 chat.
         # Learn the peer's PN<->LID pairing from the stanza before decrypt,

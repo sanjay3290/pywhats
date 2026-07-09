@@ -837,6 +837,59 @@ def _key_share_proto(keys: list[tuple[bytes, bytes, int]]) -> MessageProto:
     return proto
 
 
+@pytest.mark.asyncio
+async def test_status_broadcast_is_ignored_without_decrypt_error() -> None:
+    """Inbound status updates use sender-key (skmsg) encryption we hold no
+    session for; they must not spam ``decrypt_error`` events / retry
+    receipts — just a quiet skip."""
+    transport = FakeTransport()
+    bob = _bob_side()
+    receiver, events, _, _, _ = _build_receiver(transport=transport, bob=bob)
+
+    frame = _wrap_message(
+        message_id="MID-STATUS-1",
+        from_jid=JID(user="status", server="broadcast"),
+        enc_type="skmsg",
+        ciphertext=b"\x01\x02\x03\x04",
+    )
+    await receiver._handle_frame(frame)
+
+    assert not any(name == "decrypt_error" for name, _ in events)
+    assert not any(name == "message" for name, _ in events)
+    # No retry receipt (or any other stanza) goes back for status.
+    assert transport.outbound_frames == []
+
+
+@pytest.mark.asyncio
+async def test_stream_error_401_conflict_emits_logged_out() -> None:
+    """Device-churn reaping arrives as <stream:error code=401><conflict/>.
+
+    Terminal codes must surface as a ``logged_out`` event — mirroring the
+    <failure> path — so callers don't believe a dead session is healthy.
+    """
+    transport = FakeTransport()
+    bob = _bob_side()
+    receiver, events, _, _, _ = _build_receiver(transport=transport, bob=bob)
+
+    node = Node(tag="stream:error", attrs={"code": "401"}, content=[Node(tag="conflict")])
+    await receiver._handle_frame(encode(node))
+
+    assert ("logged_out", ("401",)) in events
+
+
+@pytest.mark.asyncio
+async def test_stream_error_515_is_not_logged_out() -> None:
+    """code=515 is the post-pair reconnect signal, not a logout."""
+    transport = FakeTransport()
+    bob = _bob_side()
+    receiver, events, _, _, _ = _build_receiver(transport=transport, bob=bob)
+
+    node = Node(tag="stream:error", attrs={"code": "515"})
+    await receiver._handle_frame(encode(node))
+
+    assert events == []
+
+
 async def _run_one_message(receiver: Receiver, transport: FakeTransport, frame: bytes) -> None:
     task = asyncio.create_task(receiver.run())
     await transport.inbound.put(frame)
