@@ -6,6 +6,49 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-09
+
+The core message-features batch: the four remaining media types plus
+reactions, quoted replies, and edits/revoke. Every outbound variant goes
+through the same encrypt/send/ack path as text, so each is fanned out to
+the account's own devices wrapped in `DeviceSentMessage`.
+
+### Added
+
+- **Document / video / audio / sticker send + receive.** New
+  `Client.send_document`, `send_video`, `send_audio`, and `send_sticker`
+  encrypt and upload through the existing media pipeline; inbound media
+  surfaces on the `message` event as a new `events.MediaAttachment`
+  (duck-types as `MediaInfo`, so `Client.download_media(msg.media)`
+  downloads and decrypts it). Voice notes set `send_audio(..., ptt=True)`
+  and inbound ptt is exposed on the attachment. Stickers ride the
+  `"WhatsApp Image Keys"` HKDF info string and image CDN endpoint (they
+  have no media type of their own). New protos `DocumentMessage`,
+  `VideoMessage`, `AudioMessage`, `StickerMessage` (whatsmeow waE2E field
+  numbers).
+- **Reactions.** `Client.send_reaction(chat, message_id, emoji, from_me=)`
+  ships a `ReactionMessage` addressing the reacted-to message; an empty
+  emoji removes the reaction. Inbound reactions emit a dedicated
+  `reaction` event (`events.Reaction`) rather than an empty message.
+- **Quoted replies.** `Client.send_text(chat, text, reply_to=Message|
+  MessageKey)` wraps the body in an `ExtendedTextMessage` with a
+  `ContextInfo` quoting the target. Inbound replies expose the quote on
+  `Message.quoted` (`events.QuotedMessage`: stanza id, participant, text).
+- **Edits + revoke.** `Client.edit_message(chat, message_id, new_text)`
+  and `Client.revoke_message(chat, message_id)` build the matching
+  `ProtocolMessage` (`MESSAGE_EDIT` / `REVOKE`) with the correct
+  `MessageKey` and the outer `edit` stanza attribute. Inbound edits and
+  revokes from a peer surface as `message_edit` / `message_revoke` events
+  (`events.MessageEdit` / `MessageRevoke`).
+
+### Notes
+
+- Send-side of documents, audio (ptt), stickers, reactions, edits, and
+  revoke is **live-verified** (server-ACKed against the real WhatsApp
+  edge on a resumed session). Video send and all inbound directions are
+  fakeserver-verified only; full on-device rendering still needs a human
+  eyeball. The Signal crypto remains clean-room and **unaudited**.
+
 ## [0.1.1] - 2026-07-09
 
 Protocol fixes found while live-testing a companion automation built on

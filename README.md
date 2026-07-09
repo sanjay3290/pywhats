@@ -7,9 +7,10 @@
 
 Async Python client for the WhatsApp multi-device protocol.
 
-> **Status:** pre-alpha (0.1.0) — the first public release. Implements QR
-> pairing, connect, send/receive text, disconnect, app-state sync, media
-> (send/receive images), history sync, read receipts, presence, and group
+> **Status:** pre-alpha (0.2.0). Implements QR pairing, connect,
+> send/receive text, disconnect, app-state sync, media (images, video,
+> audio/voice notes, documents, stickers), reactions, quoted replies,
+> edits/revoke, history sync, read receipts, presence, and group
 > messaging.
 
 > ⚠️ **Use at your own risk.** This is an independent, unofficial client and
@@ -68,8 +69,9 @@ asyncio.run(main())
 - **0.1.0** — QR pair, connect, send/receive text, disconnect, app-state
   sync, media (send/receive images), history sync, read receipts, presence,
   group messaging
-- **0.2.0+** — more media types (video/audio/document/sticker), message
-  features (reactions/replies/edits), calls, newsletters, business
+- **0.2.0** — more media types (video/audio/document/sticker), message
+  features (reactions/replies/edits/revoke)
+- **0.3.0+** — calls, newsletters, business
 
 ## License
 
