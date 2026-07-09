@@ -41,6 +41,7 @@ from .e2e_pb2 import (
     MessageKey,
     ProtocolMessage,
     SenderKeyDistributionMessage,
+    StickerMessage,
     VideoMessage,
 )
 from .handshake_pb2 import HandshakeMessage
@@ -110,6 +111,7 @@ __all__ = [
     "SenderKeyDistributionMessage",
     "SenderKeyDistributionMessageBody",
     "SenderKeyMessageBody",
+    "StickerMessage",
     "SyncActionData",
     "SyncActionValue",
     "SyncdIndex",

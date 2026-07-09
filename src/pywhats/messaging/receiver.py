@@ -61,7 +61,7 @@ from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
 from pywhats.events import JID, MediaAttachment, Message
-from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_VIDEO
+from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_IMAGE, MEDIA_VIDEO
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
     IdentityStore,
@@ -1098,5 +1098,18 @@ def _extract_media(proto: MessageProto) -> MediaAttachment | None:
             file_length=vid.file_length,
             mimetype=vid.mimetype,
             caption=vid.caption,
+        )
+    if proto.HasField("sticker_message"):
+        stk = proto.sticker_message
+        # Stickers ride the *Image* media type (see proto/e2e.proto).
+        return MediaAttachment(
+            kind="sticker",
+            direct_path=stk.direct_path,
+            media_key=stk.media_key,
+            file_sha256=stk.file_sha256,
+            file_enc_sha256=stk.file_enc_sha256,
+            media_type=MEDIA_IMAGE,
+            file_length=stk.file_length,
+            mimetype=stk.mimetype,
         )
     return None

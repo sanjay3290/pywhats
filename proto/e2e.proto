@@ -27,6 +27,7 @@ message Message {
   optional AudioMessage audio_message = 8;                 // audio / voice note
   optional VideoMessage video_message = 9;                 // video attachment
   optional ProtocolMessage protocol_message = 12;          // app-level control
+  optional StickerMessage sticker_message = 26;            // webp sticker
   // Wrapper for the copy fanned out to our OWN devices when a companion
   // sends: tells them "I sent this to <destination_jid>" so they render
   // it as outgoing. Upstream field number is 31 (whatsmeow waE2E).
@@ -119,6 +120,26 @@ message VideoMessage {
   optional string direct_path = 13;
   optional int64 media_key_timestamp = 14;
   optional bytes jpeg_thumbnail = 16;
+}
+
+// A webp sticker. Encrypted/decrypted under the *Image* HKDF info
+// string ("WhatsApp Image Keys") and uploaded to the image CDN
+// endpoint — stickers have no media type of their own (whatsmeow
+// getMediaType, Baileys MEDIA_HKDF_KEY_MAPPING/MEDIA_PATH_MAP). Field
+// numbers match whatsmeow waE2E StickerMessage (note the layout:
+// file_sha256=2, file_enc_sha256=3, media_key=4).
+message StickerMessage {
+  optional string url = 1;
+  optional bytes file_sha256 = 2;
+  optional bytes file_enc_sha256 = 3;
+  optional bytes media_key = 4;
+  optional string mimetype = 5;
+  optional uint32 height = 6;
+  optional uint32 width = 7;
+  optional string direct_path = 8;
+  optional uint64 file_length = 9;
+  optional int64 media_key_timestamp = 10;
+  optional bool is_animated = 13;
 }
 
 message SenderKeyDistributionMessage {

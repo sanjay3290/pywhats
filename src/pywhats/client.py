@@ -552,6 +552,40 @@ class Client:
             vid.caption = caption
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
 
+    async def send_sticker(
+        self,
+        chat: JID,
+        sticker_bytes: bytes,
+        *,
+        mimetype: str = "image/webp",
+    ) -> Message:
+        """Upload a webp sticker and send it as a ``StickerMessage`` to ``chat``.
+
+        Stickers are encrypted under the *Image* media keys and uploaded
+        to the image CDN endpoint (see proto/e2e.proto). Same pipeline
+        as :meth:`send_image`.
+        """
+        if not self._connected or self._media_uploader is None:
+            raise NotConnected("call connect() before send_sticker")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.media.crypto import MEDIA_IMAGE
+        from pywhats.proto import Message as MessageProto
+
+        upload = await self._media_uploader.upload(sticker_bytes, MEDIA_IMAGE)
+        proto = MessageProto()
+        stk = proto.sticker_message
+        stk.url = upload.url
+        stk.direct_path = upload.direct_path
+        stk.media_key = upload.media_key
+        stk.file_enc_sha256 = upload.file_enc_sha256
+        stk.file_sha256 = upload.file_sha256
+        stk.file_length = upload.file_length
+        stk.mimetype = mimetype
+        return await sender.send_message(chat, proto)  # type: ignore[no-any-return]
+
     async def send_audio(
         self,
         chat: JID,
