@@ -516,6 +516,45 @@ class Client:
             img.height = height
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
 
+    async def send_document(
+        self,
+        chat: JID,
+        document_bytes: bytes,
+        *,
+        mimetype: str = "application/octet-stream",
+        filename: str = "",
+        caption: str = "",
+    ) -> Message:
+        """Upload a document and send it as a ``DocumentMessage`` to ``chat``.
+
+        Same pipeline as :meth:`send_image`: encrypt + upload to the
+        media CDN, then send a message referencing the upload.
+        """
+        if not self._connected or self._media_uploader is None:
+            raise NotConnected("call connect() before send_document")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.media.crypto import MEDIA_DOCUMENT
+        from pywhats.proto import Message as MessageProto
+
+        upload = await self._media_uploader.upload(document_bytes, MEDIA_DOCUMENT)
+        proto = MessageProto()
+        doc = proto.document_message
+        doc.url = upload.url
+        doc.direct_path = upload.direct_path
+        doc.media_key = upload.media_key
+        doc.file_enc_sha256 = upload.file_enc_sha256
+        doc.file_sha256 = upload.file_sha256
+        doc.file_length = upload.file_length
+        doc.mimetype = mimetype
+        if filename:
+            doc.file_name = filename
+        if caption:
+            doc.caption = caption
+        return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
+
     async def download_media(self, info: Any) -> bytes:
         """Download and decrypt an attachment described by a ``MediaInfo`` (#36).
 

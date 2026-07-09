@@ -18,6 +18,33 @@ class JID:
 
 
 @dataclass(slots=True)
+class MediaAttachment:
+    """A downloadable attachment referenced by a message (0.2.0 media).
+
+    Carries everything :meth:`pywhats.client.Client.download_media`
+    needs (it duck-types as :class:`pywhats.media.download.MediaInfo`):
+    the CDN ``direct_path``, the 32-byte ``media_key``, the two
+    integrity hashes, and ``media_type`` (the HKDF info string, e.g.
+    ``"WhatsApp Document Keys"``). ``kind`` names the message variant
+    (``"document"``, ...) since sticker and image share a media_type.
+    """
+
+    kind: str
+    direct_path: str
+    media_key: bytes
+    file_sha256: bytes
+    file_enc_sha256: bytes
+    media_type: str
+    file_length: int
+    mimetype: str = ""
+    filename: str = ""
+    caption: str = ""
+    # Required by the downloader protocol; empty means "derive from
+    # media_type" (see MediaDownloader.download).
+    mms_type: str = ""
+
+
+@dataclass(slots=True)
 class Message:
     id: str
     chat: JID
@@ -25,6 +52,8 @@ class Message:
     text: str
     timestamp: int
     from_me: bool = False
+    # Set when the message carries a downloadable attachment.
+    media: MediaAttachment | None = None
 
 
 # --- app-state events (issue #35d) -----------------------------------

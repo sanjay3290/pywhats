@@ -60,7 +60,8 @@ from pywhats.binary import Node, decode, encode
 from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
-from pywhats.events import JID, Message
+from pywhats.events import JID, MediaAttachment, Message
+from pywhats.media.crypto import MEDIA_DOCUMENT
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
     IdentityStore,
@@ -443,14 +444,16 @@ class Receiver:
             return
 
         handled_protocol = self._handle_protocol_message(proto, sender_jid)
+        media = _extract_media(proto)
 
-        if not text and not handled_protocol:
+        if not text and not handled_protocol and media is None:
             # Some Message body variants aren't modelled in our proto
             # subset yet (DSM wrapper, ephemeral, view-once, edits,
             # media captions, etc.). Log the raw bytes so we can grow
             # `_extract_text` to cover whatever the peer actually sent.
-            # Handled protocol messages are excluded: a key share's raw
-            # bytes are key material and must never hit the log.
+            # Handled protocol and media messages are excluded: a key
+            # share's raw bytes and an attachment's media key are key
+            # material and must never hit the log.
             _log.info(
                 "receiver: empty text id=%s len=%d hex=%s",
                 message_id,
@@ -465,6 +468,7 @@ class Receiver:
             text=text,
             timestamp=timestamp,
             from_me=False,
+            media=media,
         )
         await self._safe_emit("message", message)
 
@@ -1046,3 +1050,27 @@ def _extract_text(proto: MessageProto) -> str:
         if text:
             return text
     return ""
+
+
+def _extract_media(proto: MessageProto) -> MediaAttachment | None:
+    """Surface a downloadable attachment from a decrypted ``Message`` proto.
+
+    Returns a :class:`MediaAttachment` (ready for
+    ``Client.download_media``) for the media variants we model, or
+    ``None`` for anything else.
+    """
+    if proto.HasField("document_message"):
+        doc = proto.document_message
+        return MediaAttachment(
+            kind="document",
+            direct_path=doc.direct_path,
+            media_key=doc.media_key,
+            file_sha256=doc.file_sha256,
+            file_enc_sha256=doc.file_enc_sha256,
+            media_type=MEDIA_DOCUMENT,
+            file_length=doc.file_length,
+            mimetype=doc.mimetype,
+            filename=doc.file_name,
+            caption=doc.caption,
+        )
+    return None

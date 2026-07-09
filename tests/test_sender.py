@@ -386,6 +386,89 @@ async def test_own_device_copy_is_wrapped_in_device_sent_message() -> None:
     assert not dsm.message.HasField("device_sent_message")
 
 
+def _document_proto() -> MessageProto:
+    proto = MessageProto()
+    proto.document_message.file_name = "report.pdf"
+    proto.document_message.media_key = b"\x21" * 32
+    return proto
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_proto,field",
+    [
+        pytest.param(_document_proto, "document_message", id="document"),
+    ],
+)
+async def test_own_device_copy_is_dsm_wrapped_for_new_variants(make_proto: Any, field: str) -> None:
+    """Every 0.2.0 outbound body variant rides send_message, so the copy
+    fanned out to our own devices must carry the DSM wrapper with the
+    variant intact inside it."""
+    transport = FakeTransport()
+    router = AckRouter()
+    bob_ik, bob_spk, bob_opk, bundle = _make_bob_bundle()
+    alice_ik = IdentityKeyPair.generate()
+    identity = FakeIdentity(
+        identity_private=alice_ik.private,
+        identity_public=alice_ik.public,
+        registration_id=9991,
+    )
+    own_jid = JID(user="15550001111", server="s.whatsapp.net", device=3)
+    chat = JID(user="15557654321", server="s.whatsapp.net")
+    own_other_device = JID(user=own_jid.user, server=own_jid.server, device=9)
+
+    async def fetcher(_peer: JID) -> PreKeyBundle:
+        return bundle
+
+    async def devices(_users: Iterable[JID]) -> dict[JID, UserSyncEntry]:
+        return {
+            chat: UserSyncEntry(devices=[chat]),
+            JID(user=own_jid.user, server=own_jid.server): UserSyncEntry(
+                devices=[own_jid, own_other_device]
+            ),
+        }
+
+    sender = Sender(
+        transport=transport,
+        router=router,
+        session_store=InMemorySessionStore(),
+        identity=identity,
+        prekey_fetcher=fetcher,
+        device_fetcher=devices,
+        own_jid=own_jid,
+        config=SenderConfig(ack_timeout_seconds=1.0),
+    )
+
+    original = make_proto()
+    task = asyncio.create_task(sender.send_message(chat, original))
+    for _ in range(50):
+        if transport.frames and router.pending_ids():
+            break
+        await asyncio.sleep(0.01)
+    router.resolve_ack(router.pending_ids()[0])
+    await task
+
+    stanza = decode(transport.frames[0])
+    participants = stanza.get_child("participants")
+    assert participants is not None
+    nodes = {node.attrs["jid"]: node.get_child("enc") for node in participants.get_children("to")}
+
+    peer_proto = _decrypt_pkmsg_node(
+        nodes[chat], bob_ik, bob_spk, bob_opk, identity.identity_public
+    )
+    assert peer_proto.HasField(field)
+    assert peer_proto == original
+
+    own_proto = _decrypt_pkmsg_node(
+        nodes[own_other_device], bob_ik, bob_spk, bob_opk, identity.identity_public
+    )
+    assert own_proto.HasField("device_sent_message")
+    dsm = own_proto.device_sent_message
+    assert dsm.destination_jid == "15557654321@s.whatsapp.net"
+    assert dsm.message.HasField(field)
+    assert dsm.message == original
+
+
 @pytest.mark.asyncio
 async def test_retry_receipt_from_own_device_resends_dsm_wrapper() -> None:
     """A retry from our own other device must re-encrypt the DSM copy."""
