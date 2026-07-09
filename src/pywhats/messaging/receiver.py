@@ -60,7 +60,15 @@ from pywhats.binary import Node, decode, encode
 from pywhats.binary.jid import parse_jid
 from pywhats.binary.node import AttrValue
 from pywhats.errors import ConnectionClosed
-from pywhats.events import JID, MediaAttachment, Message, QuotedMessage, Reaction
+from pywhats.events import (
+    JID,
+    MediaAttachment,
+    Message,
+    MessageEdit,
+    MessageRevoke,
+    QuotedMessage,
+    Reaction,
+)
 from pywhats.media.crypto import MEDIA_AUDIO, MEDIA_DOCUMENT, MEDIA_IMAGE, MEDIA_VIDEO
 from pywhats.proto import Message as MessageProto
 from pywhats.signal.experimental import (
@@ -466,6 +474,9 @@ class Receiver:
                 )
             return
 
+        if await self._handle_edit_or_revoke(proto, chat_jid, sender_jid, timestamp, node):
+            return
+
         handled_protocol = self._handle_protocol_message(proto, sender_jid)
         media = _extract_media(proto)
         quoted = _extract_quoted(proto)
@@ -597,6 +608,53 @@ class Receiver:
         assert self._sender_key_store is not None
         self._sender_key_store.save(str(group), session_id(participant), state)
         _log.info("receiver: stored sender key for group=%s participant=%s", group, participant)
+
+    async def _handle_edit_or_revoke(
+        self, proto: MessageProto, chat: JID, sender: JID, timestamp: int, node: Node
+    ) -> bool:
+        """Surface a peer's message edit / revoke as its own event; True if handled.
+
+        Unlike app-state/history protocol messages (self-only), edits and
+        revokes come from the peer who edited/deleted their message
+        (whatsmeow dispatches ``events.Message`` with an ``Edit``/revoke
+        marker). We split them into ``message_edit`` / ``message_revoke``
+        events rather than a fresh ``message``. Still acks with a delivery
+        receipt.
+        """
+        if not proto.HasField("protocol_message"):
+            return False
+        pm = proto.protocol_message
+        from pywhats.proto import ProtocolMessage as _PM
+
+        if pm.type == _PM.MESSAGE_EDIT:
+            await self._safe_emit(
+                "message_edit",
+                MessageEdit(
+                    chat=chat,
+                    sender=sender,
+                    message_id=pm.key.id,
+                    text=_extract_text(pm.edited_message),
+                    timestamp=timestamp,
+                ),
+            )
+        elif pm.type == _PM.REVOKE:
+            await self._safe_emit(
+                "message_revoke",
+                MessageRevoke(
+                    chat=chat,
+                    sender=sender,
+                    message_id=pm.key.id,
+                    timestamp=timestamp,
+                ),
+            )
+        else:
+            return False
+
+        try:
+            await self._send_delivery_receipt(node, to=sender)
+        except Exception:  # noqa: BLE001
+            _log.exception("receiver: failed to send delivery receipt; continuing")
+        return True
 
     def _handle_protocol_message(self, proto: MessageProto, sender: JID) -> bool:
         """Handle the ``protocol_message`` shapes we support; True if recognised.

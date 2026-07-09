@@ -166,6 +166,8 @@ class _SentMessage:
     # The stanza `type` attribute the original send used ("text",
     # "reaction", ...), so a retry resend keeps the same routing hint.
     message_type: str = "text"
+    # The stanza `edit` attribute for edits/revokes, replayed on retry.
+    edit: str | None = None
 
 
 # --- sender ---------------------------------------------------------
@@ -265,6 +267,7 @@ class Sender:
         *,
         text: str = "",
         message_type: str | None = None,
+        edit: str | None = None,
     ) -> Message:
         """Encrypt and send an arbitrary ``Message`` proto (e.g. an image).
 
@@ -272,7 +275,9 @@ class Sender:
         ack / single-retry path as :meth:`send_text`. ``text`` is only the
         value surfaced on the returned :class:`Message` event.
         ``message_type`` overrides the stanza ``type`` attribute (e.g.
-        ``"reaction"``, whatsmeow ``getTypeFromMessage``).
+        ``"reaction"``, whatsmeow ``getTypeFromMessage``). ``edit`` sets
+        the outer stanza ``edit`` attribute for edits/revokes (whatsmeow
+        ``EditAttribute``).
         """
         message_id = new_message_id()
         plaintext = pad_random_max16(message_proto.SerializeToString())
@@ -288,6 +293,7 @@ class Sender:
             own_plaintext=own_plaintext,
             allow_retry=True,
             message_type=resolved_type,
+            edit=edit,
         )
         self._sent[message.id] = _SentMessage(
             chat=chat,
@@ -295,6 +301,7 @@ class Sender:
             plaintext=plaintext,
             own_plaintext=own_plaintext,
             message_type=resolved_type,
+            edit=edit,
         )
         return message
 
@@ -442,6 +449,7 @@ class Sender:
             to=_base_jid(cached.chat),
             participants=[self._build_participant_node(peer, enc_type, ciphertext, count=count)],
             message_type=cached.message_type,
+            edit=cached.edit,
         )
         fut = self._router.register(message_id)
         try:
@@ -472,6 +480,7 @@ class Sender:
         own_plaintext: bytes,
         allow_retry: bool,
         message_type: str | None = None,
+        edit: str | None = None,
     ) -> Message:
         target_devices = await self._target_devices(chat)
         participant_nodes: list[Node] = []
@@ -500,6 +509,7 @@ class Sender:
             to=_base_jid(chat),
             participants=participant_nodes,
             message_type=message_type,
+            edit=edit,
         )
         frame = encode(stanza)
 
@@ -532,6 +542,7 @@ class Sender:
                 own_plaintext=own_plaintext,
                 allow_retry=False,
                 message_type=message_type,
+                edit=edit,
             )
 
         _log.info("sender: ack id=%s", message_id)
@@ -753,6 +764,7 @@ class Sender:
         to: JID,
         participants: list[Node],
         message_type: str | None = None,
+        edit: str | None = None,
     ) -> Node:
         content: list[Node] = [Node(tag="participants", content=participants)]
         if self._adv_signed_device_identity:
@@ -762,15 +774,14 @@ class Sender:
                     content=self._adv_signed_device_identity,
                 )
             )
-        return Node(
-            tag="message",
-            attrs={
-                "id": message_id,
-                "to": to,
-                "type": message_type or self._config.message_type,
-            },
-            content=content,
-        )
+        attrs: dict[str, AttrValue] = {
+            "id": message_id,
+            "to": to,
+            "type": message_type or self._config.message_type,
+        }
+        if edit is not None:
+            attrs["edit"] = edit
+        return Node(tag="message", attrs=attrs, content=content)
 
     @staticmethod
     def build_usync_node(message_id: str, peer: JID) -> Node:

@@ -92,6 +92,35 @@ class Reaction:
     timestamp: int
 
 
+@dataclass(slots=True)
+class MessageEdit:
+    """A peer edited an earlier message (0.2.0).
+
+    ``message_id`` is the edited message's id (from the ProtocolMessage
+    key); ``text`` is the new body. ``timestamp`` is the stanza time.
+    """
+
+    chat: JID
+    sender: JID
+    message_id: str
+    text: str
+    timestamp: int
+
+
+@dataclass(slots=True)
+class MessageRevoke:
+    """A peer deleted (revoked) an earlier message for everyone (0.2.0).
+
+    ``message_id`` is the revoked message's id (from the ProtocolMessage
+    key). ``timestamp`` is the stanza time.
+    """
+
+    chat: JID
+    sender: JID
+    message_id: str
+    timestamp: int
+
+
 # --- app-state events (issue #35d) -----------------------------------
 #
 # Decoded app-state mutations surfaced as typed events. ``timestamp`` is

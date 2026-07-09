@@ -429,6 +429,25 @@ def _reply_proto() -> MessageProto:
     return proto
 
 
+def _edit_proto() -> MessageProto:
+    from pywhats.proto import ProtocolMessage
+
+    proto = MessageProto()
+    proto.protocol_message.type = ProtocolMessage.MESSAGE_EDIT
+    proto.protocol_message.key.id = "3EB0EDITTARGET01"
+    proto.protocol_message.edited_message.conversation = "edited text"
+    return proto
+
+
+def _revoke_proto() -> MessageProto:
+    from pywhats.proto import ProtocolMessage
+
+    proto = MessageProto()
+    proto.protocol_message.type = ProtocolMessage.REVOKE
+    proto.protocol_message.key.id = "3EB0REVOKETARGET1"
+    return proto
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_proto,field",
@@ -439,6 +458,8 @@ def _reply_proto() -> MessageProto:
         pytest.param(_sticker_proto, "sticker_message", id="sticker"),
         pytest.param(_reaction_proto, "reaction_message", id="reaction"),
         pytest.param(_reply_proto, "extended_text_message", id="reply"),
+        pytest.param(_edit_proto, "protocol_message", id="edit"),
+        pytest.param(_revoke_proto, "protocol_message", id="revoke"),
     ],
 )
 async def test_own_device_copy_is_dsm_wrapped_for_new_variants(make_proto: Any, field: str) -> None:

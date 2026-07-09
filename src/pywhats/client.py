@@ -102,7 +102,10 @@ class Client:
         arrive on the same ``message`` event, with ``chat`` set to the
         ``@g.us`` JID and ``sender`` to the participant. 0.2.0 adds
         ``reaction`` (an emoji reaction to an existing message, carrying
-        a :class:`pywhats.events.Reaction`).
+        a :class:`pywhats.events.Reaction`), and ``message_edit`` /
+        ``message_revoke`` (a peer edited or deleted an earlier message,
+        carrying :class:`pywhats.events.MessageEdit` /
+        :class:`pywhats.events.MessageRevoke`).
         """
 
         def decorator(fn: Handler) -> Handler:
@@ -553,6 +556,73 @@ class Client:
         if caption:
             vid.caption = caption
         return await sender.send_message(chat, proto, text=caption)  # type: ignore[no-any-return]
+
+    async def edit_message(
+        self,
+        chat: JID,
+        message_id: str,
+        new_text: str,
+        *,
+        from_me: bool = True,
+    ) -> Message:
+        """Edit an earlier text message in ``chat`` (whatsmeow ``BuildEdit``).
+
+        ``message_id`` + ``from_me`` address the message being edited
+        (edits are normally of our own messages, so ``from_me`` defaults
+        to True). Ships a ProtocolMessage{type=MESSAGE_EDIT, key,
+        edited_message} with the outer stanza ``edit="1"`` attribute.
+        """
+        return await self._send_protocol_edit(
+            chat, message_id, from_me, new_text=new_text, revoke=False
+        )
+
+    async def revoke_message(
+        self,
+        chat: JID,
+        message_id: str,
+        *,
+        from_me: bool = True,
+    ) -> Message:
+        """Delete (revoke) an earlier message for everyone (whatsmeow ``BuildRevoke``).
+
+        Ships a ProtocolMessage{type=REVOKE, key} with the outer stanza
+        ``edit="7"`` attribute.
+        """
+        return await self._send_protocol_edit(chat, message_id, from_me, new_text=None, revoke=True)
+
+    async def _send_protocol_edit(
+        self,
+        chat: JID,
+        message_id: str,
+        from_me: bool,
+        *,
+        new_text: str | None,
+        revoke: bool,
+    ) -> Message:
+        if not self._connected:
+            raise NotConnected("call connect() first")
+        sender = getattr(self, "_sender", None)
+        if sender is None:
+            raise NotConnected("message sender is not wired up")
+
+        from pywhats.proto import Message as MessageProto
+        from pywhats.proto import ProtocolMessage
+
+        proto = MessageProto()
+        pm = proto.protocol_message
+        pm.key.remote_jid = f"{chat.user}@{chat.server}"
+        pm.key.from_me = from_me
+        pm.key.id = message_id
+        if revoke:
+            pm.type = ProtocolMessage.REVOKE
+            edit_attr = "7"  # EditAttributeSenderRevoke (public writeups)
+        else:
+            pm.type = ProtocolMessage.MESSAGE_EDIT
+            pm.edited_message.conversation = new_text or ""
+            edit_attr = "1"  # EditAttributeMessageEdit (public writeups)
+        return await sender.send_message(  # type: ignore[no-any-return]
+            chat, proto, edit=edit_attr
+        )
 
     async def send_reaction(
         self,
