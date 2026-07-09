@@ -578,6 +578,29 @@ async def test_non_media_enc_has_no_mediatype() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "make_proto,expect_hide",
+    [
+        pytest.param(_reaction_proto, True, id="reaction"),
+        pytest.param(_edit_proto, False, id="edit-via-send_message"),
+        pytest.param(_reply_proto, False, id="reply"),
+        pytest.param(_image_proto, False, id="image"),
+    ],
+)
+async def test_reaction_enc_carries_decrypt_fail_hide(make_proto: Any, expect_hide: bool) -> None:
+    """whatsmeow tags reaction (and edit/revoke) <enc> nodes with
+    decrypt-fail="hide". Edits/revokes get it via the edit= path (tested
+    through Client.edit_message elsewhere); a bare reaction gets it from
+    its inferred type."""
+    stanza = await _send_and_decode(make_proto)
+    enc = stanza.get_child("participants").get_child("to").get_child("enc")
+    if expect_hide:
+        assert enc.get_str("decrypt-fail") == "hide"
+    else:
+        assert "decrypt-fail" not in enc.attrs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "make_proto,field",
     [
         pytest.param(_document_proto, "document_message", id="document"),

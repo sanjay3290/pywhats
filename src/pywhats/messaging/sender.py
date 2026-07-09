@@ -170,6 +170,8 @@ class _SentMessage:
     edit: str | None = None
     # The `<enc mediatype=...>` value for media, replayed on retry.
     mediatype: str = ""
+    # The `<enc decrypt-fail=...>` value for reaction/edit/revoke.
+    decrypt_fail: str = ""
 
 
 # --- sender ---------------------------------------------------------
@@ -286,6 +288,10 @@ class Sender:
         own_plaintext = self._build_dsm_plaintext(chat, message_proto)
         resolved_type = message_type or _message_type_for(message_proto)
         mediatype = _media_type_for(message_proto)
+        # whatsmeow tags reaction / edit / revoke <enc> nodes with
+        # decrypt-fail="hide" (prepareMessageNode) so a peer that can't
+        # decrypt them hides the failure instead of showing a placeholder.
+        decrypt_fail = "hide" if (resolved_type == "reaction" or edit is not None) else ""
         _log.info("sender: preparing message id=%s to=%s", message_id, _fmt_jid(chat))
 
         message = await self._send_once(
@@ -298,6 +304,7 @@ class Sender:
             message_type=resolved_type,
             edit=edit,
             mediatype=mediatype,
+            decrypt_fail=decrypt_fail,
         )
         self._sent[message.id] = _SentMessage(
             chat=chat,
@@ -307,6 +314,7 @@ class Sender:
             message_type=resolved_type,
             edit=edit,
             mediatype=mediatype,
+            decrypt_fail=decrypt_fail,
         )
         return message
 
@@ -454,7 +462,12 @@ class Sender:
             to=_base_jid(cached.chat),
             participants=[
                 self._build_participant_node(
-                    peer, enc_type, ciphertext, count=count, mediatype=cached.mediatype
+                    peer,
+                    enc_type,
+                    ciphertext,
+                    count=count,
+                    mediatype=cached.mediatype,
+                    decrypt_fail=cached.decrypt_fail,
                 )
             ],
             message_type=cached.message_type,
@@ -517,6 +530,7 @@ class Sender:
         message_type: str | None = None,
         edit: str | None = None,
         mediatype: str = "",
+        decrypt_fail: str = "",
     ) -> Message:
         target_devices = await self._target_devices(chat)
         participant_nodes: list[Node] = []
@@ -536,7 +550,13 @@ class Sender:
             # outer stanza, but the message never displays.
             wire_device = await self._resolve_signal_address(device)
             participant_nodes.append(
-                self._build_participant_node(wire_device, enc_type, ciphertext, mediatype=mediatype)
+                self._build_participant_node(
+                    wire_device,
+                    enc_type,
+                    ciphertext,
+                    mediatype=mediatype,
+                    decrypt_fail=decrypt_fail,
+                )
             )
             encrypted_devices.append(device)
 
@@ -580,6 +600,7 @@ class Sender:
                 message_type=message_type,
                 edit=edit,
                 mediatype=mediatype,
+                decrypt_fail=decrypt_fail,
             )
 
         _log.info("sender: ack id=%s", message_id)
@@ -785,6 +806,7 @@ class Sender:
         ciphertext: bytes,
         count: int | None = None,
         mediatype: str = "",
+        decrypt_fail: str = "",
     ) -> Node:
         enc_attrs: dict[str, AttrValue] = {"v": self._config.enc_version, "type": enc_type}
         if count is not None:
@@ -793,6 +815,8 @@ class Sender:
             # whatsmeow tags the <enc> with the specific media kind so the
             # recipient renders it correctly (send.go plaintextNode attrs).
             enc_attrs["mediatype"] = mediatype
+        if decrypt_fail:
+            enc_attrs["decrypt-fail"] = decrypt_fail
         return Node(
             tag="to",
             attrs={"jid": jid},
