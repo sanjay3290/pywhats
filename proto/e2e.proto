@@ -200,7 +200,6 @@ message ProtocolMessage {
   optional AppStateSyncKeyShare app_state_sync_key_share = 7;
   optional AppStateSyncKeyRequest app_state_sync_key_request = 8;
   optional Message edited_message = 24;  // new body for a MESSAGE_EDIT
-  optional int64 timestamp_ms = 22;      // edit/revoke server timestamp (ms)
 
   enum Type {
     REVOKE = 0;

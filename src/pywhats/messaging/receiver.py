@@ -626,6 +626,15 @@ class Receiver:
         pm = proto.protocol_message
         from pywhats.proto import ProtocolMessage as _PM
 
+        # REVOKE is enum value 0 == the proto3 default, so a protocol
+        # message that omits `type` (e.g. one carrying only an app-state
+        # key share or history-sync notification) would read back as
+        # REVOKE and be wrongly swallowed here before _handle_protocol_
+        # message runs. Genuine edits/revokes always set `type`
+        # explicitly, so gate on presence.
+        if not pm.HasField("type"):
+            return False
+
         if pm.type == _PM.MESSAGE_EDIT:
             await self._safe_emit(
                 "message_edit",
@@ -1142,6 +1151,19 @@ def _extract_media(proto: MessageProto) -> MediaAttachment | None:
     ``Client.download_media``) for the media variants we model, or
     ``None`` for anything else.
     """
+    if proto.HasField("image_message"):
+        img = proto.image_message
+        return MediaAttachment(
+            kind="image",
+            direct_path=img.direct_path,
+            media_key=img.media_key,
+            file_sha256=img.file_sha256,
+            file_enc_sha256=img.file_enc_sha256,
+            media_type=MEDIA_IMAGE,
+            file_length=img.file_length,
+            mimetype=img.mimetype,
+            caption=img.caption,
+        )
     if proto.HasField("document_message"):
         doc = proto.document_message
         return MediaAttachment(

@@ -85,6 +85,38 @@ async def test_outbound_reaction_targets_previously_sent_message() -> None:
         await client.disconnect()
 
 
+async def test_reaction_removal_sends_present_empty_text() -> None:
+    """Removing a reaction (empty emoji) must send ReactionMessage.text
+    present-but-empty, not absent — whatsmeow BuildReaction always sets
+    text, and a recipient distinguishes removal by a present empty string."""
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=1))
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url)
+        client._device = device
+
+        await _connect(client, server)
+
+        chat = JID(user="15559990000", server="s.whatsapp.net", device=1)
+        await client.send_reaction(chat, "3EB0REMOVE0001", "", from_me=True)
+
+        msgs = [n for n in server.received if n.tag == "message"]
+        assert msgs, "server never received the reaction removal"
+        enc_node = msgs[0].get_child("participants").get_children("to")[0].get_child("enc")  # type: ignore[union-attr]
+        plaintext = peer.decrypt_pkmsg(
+            enc_node.content_bytes(),  # type: ignore[union-attr]
+            client_identity_public=device.identity_public,
+        )
+        proto = MessageProto()
+        proto.ParseFromString(plaintext)
+        rm = proto.reaction_message
+        assert rm.HasField("text"), "removal must send text present"
+        assert rm.text == ""
+        assert rm.key.id == "3EB0REMOVE0001"
+
+        await client.disconnect()
+
+
 async def test_inbound_reaction_emits_reaction_event() -> None:
     device = paired_device()
     peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))

@@ -144,6 +144,42 @@ async def test_inbound_edit_emits_message_edit_event() -> None:
         await client.disconnect()
 
 
+async def test_typeless_protocol_message_is_not_treated_as_revoke() -> None:
+    """A protocol_message with no explicit `type` must NOT be misread as a
+    revoke: REVOKE is proto3 enum default 0, so the handler has to gate on
+    field presence, not `pm.type == REVOKE`."""
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url)
+        client._device = device
+
+        revokes: list[MessageRevoke] = []
+        edits: list[MessageEdit] = []
+
+        @client.on("message_revoke")
+        async def _on_revoke(r: MessageRevoke) -> None:
+            revokes.append(r)
+
+        @client.on("message_edit")
+        async def _on_edit(e: MessageEdit) -> None:
+            edits.append(e)
+
+        await _connect(client, server)
+
+        # A protocol message with `type` unset (only ephemeral_expiration).
+        proto = MessageProto()
+        proto.protocol_message.ephemeral_expiration = 604800
+        await server.deliver_proto(peer, proto, client_device=device)
+
+        # Give the receiver a beat to process, then assert nothing fired.
+        await asyncio.sleep(0.3)
+        assert not revokes, "type-less protocol message wrongly emitted message_revoke"
+        assert not edits
+
+        await client.disconnect()
+
+
 async def test_inbound_revoke_emits_message_revoke_event() -> None:
     device = paired_device()
     peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))

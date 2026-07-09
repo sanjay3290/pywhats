@@ -653,8 +653,10 @@ class Client:
         rm.key.remote_jid = f"{chat.user}@{chat.server}"
         rm.key.from_me = from_me
         rm.key.id = message_id
-        if emoji:
-            rm.text = emoji
+        # Always set text (present-but-empty for a removal), matching
+        # whatsmeow BuildReaction — a recipient distinguishes "remove
+        # reaction" by a present empty string, not an absent field.
+        rm.text = emoji
         rm.sender_timestamp_ms = int(time.time() * 1000)
         return await sender.send_message(  # type: ignore[no-any-return]
             chat, proto, message_type="reaction"

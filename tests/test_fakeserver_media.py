@@ -38,6 +38,7 @@ _MEDIA_KEY = b"\x21" * 32
 _DOC_BYTES = b"%PDF-1.4 fake report body " * 40
 _VIDEO_BYTES = b"\x00\x00\x00\x18ftypmp42 fake mp4 payload " * 50
 _AUDIO_BYTES = b"OggS fake opus voice note " * 30
+_IMAGE_BYTES = b"\xff\xd8\xff\xe0 fake jpeg body " * 16
 _STICKER_BYTES = b"RIFF....WEBPVP8 fake sticker " * 20
 
 
@@ -51,6 +52,53 @@ async def _connect(client: Client, server: FakeWhatsAppServer) -> None:
     await client.connect()
     await asyncio.wait_for(server.handshake_complete.wait(), timeout=5.0)
     await asyncio.wait_for(connected.wait(), timeout=5.0)
+
+
+async def test_inbound_image_surfaces_attachment_and_downloads() -> None:
+    """A captionless inbound image must surface as message.media (kind=image)
+    and download — and must NOT fall through to the raw-hex 'empty text' log,
+    which would leak the 32-byte media_key."""
+    device = paired_device()
+    peer = SignalPeer(jid=JID(user="15559990000", server="s.whatsapp.net", device=0))
+    enc = encrypt_media(_IMAGE_BYTES, MEDIA_IMAGE, media_key=_MEDIA_KEY)
+
+    async def _fake_get(url: str) -> bytes:
+        assert "mms-type=image" in url
+        return enc.enc_data
+
+    async with FakeWhatsAppServer(peer=peer) as server:
+        client = Client(ws_url=server.url, media_http_get=_fake_get)
+        client._device = device
+
+        received: list[Message] = []
+
+        @client.on("message")
+        async def _on_message(m: Message) -> None:
+            received.append(m)
+
+        await _connect(client, server)
+
+        proto = MessageProto()
+        img = proto.image_message
+        img.direct_path = "/v/t62.7118-24/img.enc"
+        img.media_key = enc.media_key
+        img.file_sha256 = enc.file_sha256
+        img.file_enc_sha256 = enc.file_enc_sha256
+        img.file_length = enc.file_length
+        img.mimetype = "image/jpeg"
+        await server.deliver_proto(peer, proto, client_device=device)
+
+        await poll_until(lambda: bool(received))
+        media = received[0].media
+        assert media is not None
+        assert media.kind == "image"
+        assert media.media_type == MEDIA_IMAGE
+        assert media.mimetype == "image/jpeg"
+
+        plaintext = await client.download_media(media)
+        assert plaintext == _IMAGE_BYTES
+
+        await client.disconnect()
 
 
 async def test_inbound_document_surfaces_attachment_and_downloads() -> None:
