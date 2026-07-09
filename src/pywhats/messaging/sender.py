@@ -168,6 +168,8 @@ class _SentMessage:
     message_type: str = "text"
     # The stanza `edit` attribute for edits/revokes, replayed on retry.
     edit: str | None = None
+    # The `<enc mediatype=...>` value for media, replayed on retry.
+    mediatype: str = ""
 
 
 # --- sender ---------------------------------------------------------
@@ -283,6 +285,7 @@ class Sender:
         plaintext = pad_random_max16(message_proto.SerializeToString())
         own_plaintext = self._build_dsm_plaintext(chat, message_proto)
         resolved_type = message_type or _message_type_for(message_proto)
+        mediatype = _media_type_for(message_proto)
         _log.info("sender: preparing message id=%s to=%s", message_id, _fmt_jid(chat))
 
         message = await self._send_once(
@@ -294,6 +297,7 @@ class Sender:
             allow_retry=True,
             message_type=resolved_type,
             edit=edit,
+            mediatype=mediatype,
         )
         self._sent[message.id] = _SentMessage(
             chat=chat,
@@ -302,6 +306,7 @@ class Sender:
             own_plaintext=own_plaintext,
             message_type=resolved_type,
             edit=edit,
+            mediatype=mediatype,
         )
         return message
 
@@ -447,7 +452,11 @@ class Sender:
         stanza = self._build_message_node(
             message_id=message_id,
             to=_base_jid(cached.chat),
-            participants=[self._build_participant_node(peer, enc_type, ciphertext, count=count)],
+            participants=[
+                self._build_participant_node(
+                    peer, enc_type, ciphertext, count=count, mediatype=cached.mediatype
+                )
+            ],
             message_type=cached.message_type,
             edit=cached.edit,
         )
@@ -507,6 +516,7 @@ class Sender:
         allow_retry: bool,
         message_type: str | None = None,
         edit: str | None = None,
+        mediatype: str = "",
     ) -> Message:
         target_devices = await self._target_devices(chat)
         participant_nodes: list[Node] = []
@@ -526,7 +536,7 @@ class Sender:
             # outer stanza, but the message never displays.
             wire_device = await self._resolve_signal_address(device)
             participant_nodes.append(
-                self._build_participant_node(wire_device, enc_type, ciphertext)
+                self._build_participant_node(wire_device, enc_type, ciphertext, mediatype=mediatype)
             )
             encrypted_devices.append(device)
 
@@ -569,6 +579,7 @@ class Sender:
                 allow_retry=False,
                 message_type=message_type,
                 edit=edit,
+                mediatype=mediatype,
             )
 
         _log.info("sender: ack id=%s", message_id)
@@ -768,11 +779,20 @@ class Sender:
         return fallback[0] if fallback else self._own_jid
 
     def _build_participant_node(
-        self, jid: JID, enc_type: str, ciphertext: bytes, count: int | None = None
+        self,
+        jid: JID,
+        enc_type: str,
+        ciphertext: bytes,
+        count: int | None = None,
+        mediatype: str = "",
     ) -> Node:
         enc_attrs: dict[str, AttrValue] = {"v": self._config.enc_version, "type": enc_type}
         if count is not None:
             enc_attrs["count"] = str(count)
+        if mediatype:
+            # whatsmeow tags the <enc> with the specific media kind so the
+            # recipient renders it correctly (send.go plaintextNode attrs).
+            enc_attrs["mediatype"] = mediatype
         return Node(
             tag="to",
             attrs={"jid": jid},
@@ -855,11 +875,25 @@ class Sender:
 def _message_type_for(proto: MessageProto) -> str:
     """The outer ``<message type=...>`` for a body (whatsmeow ``getTypeFromMessage``).
 
-    Media bodies name their kind (``image`` / ``video`` / ``audio`` /
-    ``ptt`` / ``document`` / ``sticker``); a reaction is ``reaction``;
-    everything else (conversation, extended text, protocol messages such
-    as edit/revoke) is ``text``. Sending media as ``text`` deviates from
-    the reference and can make recipients mishandle the attachment.
+    ALL media (image/video/audio/document/sticker) is ``media`` — the
+    specific kind rides the ``<enc mediatype=...>`` attribute instead
+    (see :func:`_media_type_for`). A reaction is ``reaction``; everything
+    else (conversation, extended text, protocol messages such as
+    edit/revoke) is ``text``. Using an invalid stanza type like ``image``
+    makes the server reject the message with a retry.
+    """
+    if proto.HasField("reaction_message"):
+        return "reaction"
+    if _media_type_for(proto):
+        return "media"
+    return "text"
+
+
+def _media_type_for(proto: MessageProto) -> str:
+    """The ``<enc mediatype=...>`` value for a media body, else ``""``.
+
+    Mirrors whatsmeow ``getMediaTypeFromMessage``: image / video / ptt /
+    audio / document / sticker. Empty for non-media bodies.
     """
     if proto.HasField("image_message"):
         return "image"
@@ -871,9 +905,7 @@ def _message_type_for(proto: MessageProto) -> str:
         return "document"
     if proto.HasField("sticker_message"):
         return "sticker"
-    if proto.HasField("reaction_message"):
-        return "reaction"
-    return "text"
+    return ""
 
 
 async def _single_device_fetcher(users: Iterable[JID]) -> dict[JID, UserSyncEntry]:

@@ -509,25 +509,7 @@ def _audio_plain_proto() -> MessageProto:
     return proto
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "make_proto,expected_type",
-    [
-        pytest.param(_image_proto, "image", id="image"),
-        pytest.param(_video_proto, "video", id="video"),
-        pytest.param(_audio_proto, "ptt", id="voice-note"),
-        pytest.param(_audio_plain_proto, "audio", id="audio"),
-        pytest.param(_document_proto, "document", id="document"),
-        pytest.param(_sticker_proto, "sticker", id="sticker"),
-        pytest.param(_reaction_proto, "reaction", id="reaction"),
-        pytest.param(_reply_proto, "text", id="reply"),
-        pytest.param(_edit_proto, "text", id="edit"),
-    ],
-)
-async def test_stanza_type_matches_message_body(make_proto: Any, expected_type: str) -> None:
-    """The outer <message type=...> must name the body kind (whatsmeow
-    getTypeFromMessage): image/video/audio/ptt/document/sticker/reaction,
-    else text. Sending media as type=text deviates from the reference."""
+async def _send_and_decode(make_proto: Any) -> Any:
     transport = FakeTransport()
     router = AckRouter()
     _, _, _, bundle = _make_bob_bundle()
@@ -541,8 +523,57 @@ async def test_stanza_type_matches_message_body(make_proto: Any, expected_type: 
         await asyncio.sleep(0.01)
     router.resolve_ack(router.pending_ids()[0])
     await task
+    return decode(transport.frames[0])
 
-    assert decode(transport.frames[0]).get_str("type") == expected_type
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_proto,expected_type",
+    [
+        pytest.param(_image_proto, "media", id="image"),
+        pytest.param(_video_proto, "media", id="video"),
+        pytest.param(_audio_proto, "media", id="voice-note"),
+        pytest.param(_audio_plain_proto, "media", id="audio"),
+        pytest.param(_document_proto, "media", id="document"),
+        pytest.param(_sticker_proto, "media", id="sticker"),
+        pytest.param(_reaction_proto, "reaction", id="reaction"),
+        pytest.param(_reply_proto, "text", id="reply"),
+        pytest.param(_edit_proto, "text", id="edit"),
+    ],
+)
+async def test_stanza_type_matches_message_body(make_proto: Any, expected_type: str) -> None:
+    """The outer <message type=...> is whatsmeow getTypeFromMessage: ALL
+    media is "media" (the specific kind rides <enc mediatype>), a reaction
+    is "reaction", everything else "text". An invalid type like "image"
+    makes the server reject the message with a retry."""
+    assert (await _send_and_decode(make_proto)).get_str("type") == expected_type
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_proto,expected_mediatype",
+    [
+        pytest.param(_image_proto, "image", id="image"),
+        pytest.param(_video_proto, "video", id="video"),
+        pytest.param(_audio_proto, "ptt", id="voice-note"),
+        pytest.param(_audio_plain_proto, "audio", id="audio"),
+        pytest.param(_document_proto, "document", id="document"),
+        pytest.param(_sticker_proto, "sticker", id="sticker"),
+    ],
+)
+async def test_enc_carries_mediatype_attr(make_proto: Any, expected_mediatype: str) -> None:
+    """Media <enc> nodes carry the specific kind in a `mediatype` attribute
+    (whatsmeow send.go plaintextNode attrs)."""
+    stanza = await _send_and_decode(make_proto)
+    enc = stanza.get_child("participants").get_child("to").get_child("enc")
+    assert enc.get_str("mediatype") == expected_mediatype
+
+
+@pytest.mark.asyncio
+async def test_non_media_enc_has_no_mediatype() -> None:
+    stanza = await _send_and_decode(_reply_proto)
+    enc = stanza.get_child("participants").get_child("to").get_child("enc")
+    assert "mediatype" not in enc.attrs
 
 
 @pytest.mark.asyncio
